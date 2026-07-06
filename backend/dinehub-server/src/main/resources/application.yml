@@ -1,0 +1,62 @@
+server:
+  port: 8080
+
+spring:
+  profiles:
+    active: dev
+  main:
+    allow-circular-references: true
+  datasource:
+    druid:
+      driver-class-name: ${dinehub.datasource.driver-class-name}
+      url: jdbc:mysql://${dinehub.datasource.host}:${dinehub.datasource.port}/${dinehub.datasource.database}?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true
+      username: ${dinehub.datasource.username}
+      password: ${dinehub.datasource.password}
+  redis:
+    host: ${dinehub.redis.host}
+    port: ${dinehub.redis.port}
+    password: ${dinehub.redis.password}
+    database: ${dinehub.redis.database}
+
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.dinehub.entity
+  configuration:
+    map-underscore-to-camel-case: true
+
+logging:
+  level:
+    com:
+      dinehub:
+        mapper: debug
+        service: info
+        controller: info
+
+dinehub:
+  jwt:
+    # secret keys for signing JWT tokens; override via env vars outside local dev
+    admin-secret-key: ${DINEHUB_JWT_ADMIN_SECRET:dinehub-admin-dev-secret}
+    admin-ttl: 7200000
+    admin-token-name: token
+    user-secret-key: ${DINEHUB_JWT_USER_SECRET:dinehub-user-dev-secret}
+    user-ttl: 7200000
+    user-token-name: authentication
+  alioss:
+    endpoint: ${dinehub.alioss.endpoint}
+    access-key-id: ${dinehub.alioss.access-key-id}
+    access-key-secret: ${dinehub.alioss.access-key-secret}
+    bucket-name: ${dinehub.alioss.bucket-name}
+  wechat:
+    appid: ${dinehub.wechat.appid}
+    secret: ${dinehub.wechat.secret}
+    mchid: ${dinehub.wechat.mchid}
+    mchSerialNo: ${dinehub.wechat.mchSerialNo}
+    privateKeyFilePath: ${dinehub.wechat.privateKeyFilePath}
+    apiV3Key: ${dinehub.wechat.apiV3Key}
+    weChatPayCertFilePath: ${dinehub.wechat.weChatPayCertFilePath}
+    notifyUrl: ${dinehub.wechat.notifyUrl}
+    refundNotifyUrl: ${dinehub.wechat.refundNotifyUrl}
+  shop:
+    address: 南京市玄武区中山路100号
+  baidu:
+    ak: ${DINEHUB_BAIDU_AK:your-ak}

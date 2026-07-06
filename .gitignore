@@ -1,0 +1,30 @@
+# local working notes — never commit
+LOCAL-SPEC.md
+LOCAL-DESIGN.md
+LOCAL-*.md
+notes/
+
+# build output
+target/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# env & secrets
+.env
+*.pem
+*.p12
+
+# OS / logs
+logs/
+*.log
+Thumbs.db
+.DS_Store

@@ -1,0 +1,30 @@
+# Local development profile. Credentials come from environment variables with
+# harmless local defaults — never commit real secrets here.
+dinehub:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    host: ${DINEHUB_DB_HOST:localhost}
+    port: ${DINEHUB_DB_PORT:3306}
+    database: ${DINEHUB_DB_NAME:dinehub}
+    username: ${DINEHUB_DB_USERNAME:root}
+    password: ${DINEHUB_DB_PASSWORD:root}
+  redis:
+    host: ${DINEHUB_REDIS_HOST:localhost}
+    port: ${DINEHUB_REDIS_PORT:6379}
+    password: ${DINEHUB_REDIS_PASSWORD:}
+    database: ${DINEHUB_REDIS_DATABASE:0}
+  alioss:
+    endpoint: ${DINEHUB_OSS_ENDPOINT:oss-cn-hangzhou.aliyuncs.com}
+    access-key-id: ${DINEHUB_OSS_ACCESS_KEY_ID:}
+    access-key-secret: ${DINEHUB_OSS_ACCESS_KEY_SECRET:}
+    bucket-name: ${DINEHUB_OSS_BUCKET:}
+  wechat:
+    appid: ${DINEHUB_WECHAT_APPID:}
+    secret: ${DINEHUB_WECHAT_SECRET:}
+    mchid: ${DINEHUB_WECHAT_MCHID:}
+    mchSerialNo: ${DINEHUB_WECHAT_MCH_SERIAL_NO:}
+    privateKeyFilePath: ${DINEHUB_WECHAT_PRIVATE_KEY_PATH:}
+    apiV3Key: ${DINEHUB_WECHAT_API_V3_KEY:}
+    weChatPayCertFilePath: ${DINEHUB_WECHAT_PAY_CERT_PATH:}
+    notifyUrl: ${DINEHUB_WECHAT_NOTIFY_URL:}
+    refundNotifyUrl: ${DINEHUB_WECHAT_REFUND_NOTIFY_URL:}

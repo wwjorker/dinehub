@@ -5,7 +5,8 @@ DineHub 是一个面向单店/小连锁餐饮商家的一体化经营平台后�
 ## 当前状态
 
 - `backend`:Spring Boot 多模块后端,已实现商家管理端(员工/分类/菜品/套餐/订单管理/营业统计)与用户端(浏览/购物车/下单/支付对接)完整链路。
-- 进行中:数据库迁移 Flyway 化、Docker Compose 本地环境、扫码点单(堂食履约)、优惠券限时秒杀、订单超时取消的 MQ 改造。
+- 已实现扫码点单:管理端维护桌台并生成二维码,顾客扫码后凭桌台令牌下堂食单,与外卖单共用订单主链路(履约方式分支),含单元测试与本地端到端验证。
+- 进行中:优惠券限时秒杀、订单超时取消的 MQ 改造。
 - 性能数字以本机 JMeter 实测为准,未实测的优化不写数字。
 
 ## 技术栈
@@ -33,7 +34,9 @@ dinehub
 
 ## 本地运行
 
-依赖:MySQL 8.x、Redis(默认 `localhost` 标准端口,可用环境变量覆盖,见 `application-dev.yml`)。
+依赖:MySQL 8.x、Redis(默认 `localhost` 标准端口,可用环境变量覆盖,见 `application-dev.yml`)。推荐直接 `docker compose up -d` 启动全部中间件。
+
+注意:Flyway 社区版要求 MySQL 8.0+;若临时使用 MySQL 5.7,需手动执行 `db/migration` 下的 SQL 并以 `SPRING_FLYWAY_ENABLED=false` 启动。
 
 ```bash
 cd backend
@@ -47,9 +50,9 @@ java -jar dinehub-server/target/dinehub-server-1.0-SNAPSHOT.jar
 
 ## 路线图
 
-- [ ] Flyway 管理全量 schema(V1 基线)
-- [ ] Docker Compose 一键启动 MySQL / Redis / RabbitMQ
-- [ ] 扫码点单:桌台二维码 → 堂食订单,与外卖共用订单主链路
+- [x] Flyway 管理全量 schema(V1 基线)
+- [x] Docker Compose 配置 MySQL / Redis / RabbitMQ
+- [x] 扫码点单:桌台二维码 → 堂食订单,与外卖共用订单主链路
 - [ ] 优惠券限时秒杀:Redis + Lua 原子预扣库存、MQ 异步落库、幂等与库存回补
 - [ ] 订单超时取消:Spring Task 轮询改造为 RabbitMQ 延迟消息,保留轮询作低频兜底
 - [ ] 菜品缓存一致性(延迟双删)与注解式接口限流

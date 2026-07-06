@@ -93,6 +93,9 @@ class OrderServiceImplTest {
         assertEquals("A07", saved.getAddress());
         assertEquals(USER_ID, saved.getUserId());
         assertNull(saved.getAddressBookId());
+        //dine-in clients don't send delivery/tableware options; NOT NULL columns need defaults
+        assertEquals(1, saved.getDeliveryStatus());
+        assertEquals(1, saved.getTablewareStatus());
         verify(addressBookMapper, never()).getById(anyLong());
         verify(shoppingCartMapper).deleteByUserId(USER_ID);
     }

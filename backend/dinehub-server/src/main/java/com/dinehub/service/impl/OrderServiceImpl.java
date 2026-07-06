@@ -107,6 +107,13 @@ public class OrderServiceImpl implements OrderService {
         orders.setPayStatus(Orders.UN_PAID);
         orders.setStatus(Orders.PENDING_PAYMENT);
         orders.setNumber(String.valueOf(System.currentTimeMillis()));
+        //堂食H5不传配送/餐具选项,这两列非空,给出与外卖端一致的默认值
+        if (orders.getDeliveryStatus() == null) {
+            orders.setDeliveryStatus(1);
+        }
+        if (orders.getTablewareStatus() == null) {
+            orders.setTablewareStatus(1);
+        }
         if (dineIn) {
             //堂食单没有配送地址,履约落在桌台上
             orders.setFulfillmentType(Orders.DINE_IN);

@@ -4,13 +4,13 @@
 <mapper namespace="com.dinehub.mapper.OrderMapper">
 
     <insert id="insert" parameterType="Orders" useGeneratedKeys="true" keyProperty="id">
-        insert into orders (number, status, user_id, address_book_id, order_time, checkout_time, pay_method, pay_status,
-                            amount, remark, phone, address, consignee, estimated_delivery_time, delivery_status,
-                            pack_amount, tableware_number, tableware_status)
+        insert into orders (number, status, fulfillment_type, table_id, user_id, address_book_id, order_time,
+                            checkout_time, pay_method, pay_status, amount, remark, phone, address, consignee,
+                            estimated_delivery_time, delivery_status, pack_amount, tableware_number, tableware_status)
         values
-               (#{number}, #{status}, #{userId}, #{addressBookId}, #{orderTime}, #{checkoutTime}, #{payMethod},
-                #{payStatus},#{amount}, #{remark}, #{phone}, #{address}, #{consignee}, #{estimatedDeliveryTime},
-                #{deliveryStatus},#{packAmount}, #{tablewareNumber}, #{tablewareStatus})
+               (#{number}, #{status}, #{fulfillmentType}, #{tableId}, #{userId}, #{addressBookId}, #{orderTime},
+                #{checkoutTime}, #{payMethod}, #{payStatus},#{amount}, #{remark}, #{phone}, #{address}, #{consignee},
+                #{estimatedDeliveryTime}, #{deliveryStatus},#{packAmount}, #{tablewareNumber}, #{tablewareStatus})
     </insert>
 
     <update id="update" parameterType="com.dinehub.entity.Orders">

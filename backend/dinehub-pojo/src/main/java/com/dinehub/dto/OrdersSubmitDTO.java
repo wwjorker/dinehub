@@ -9,8 +9,10 @@ import java.time.LocalDateTime;
 
 @Data
 public class OrdersSubmitDTO implements Serializable {
-    //地址簿id
+    //地址簿id(外卖单必填,堂食单为空)
     private Long addressBookId;
+    //桌台扫码令牌(堂食单必填,外卖单为空)
+    private String tableToken;
     //付款方式
     private int payMethod;
     //备注

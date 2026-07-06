@@ -29,6 +29,12 @@ public class Orders implements Serializable {
     public static final Integer CANCELLED = 6;
 
     /**
+     * 履约方式 1外卖配送 2到店堂食
+     */
+    public static final Integer DELIVERY = 1;
+    public static final Integer DINE_IN = 2;
+
+    /**
      * 支付状态 0未支付 1已支付 2退款
      */
     public static final Integer UN_PAID = 0;
@@ -44,6 +50,12 @@ public class Orders implements Serializable {
 
     //订单状态 1待付款 2待接单 3已接单 4派送中 5已完成 6已取消 7退款
     private Integer status;
+
+    //履约方式 1外卖 2堂食
+    private Integer fulfillmentType;
+
+    //堂食桌台id
+    private Long tableId;
 
     //下单用户id
     private Long userId;
@@ -99,11 +111,11 @@ public class Orders implements Serializable {
     //送达时间
     private LocalDateTime deliveryTime;
 
-    //打包费
-    private int packAmount;
+    //打包费(堂食单为空)
+    private Integer packAmount;
 
-    //餐具数量
-    private int tablewareNumber;
+    //餐具数量(堂食单为空)
+    private Integer tablewareNumber;
 
     //餐具数量状态  1按餐量提供  0选择具体数量
     private Integer tablewareStatus;

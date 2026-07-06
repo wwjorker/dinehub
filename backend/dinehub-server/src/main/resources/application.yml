@@ -60,6 +60,9 @@ dinehub:
     weChatPayCertFilePath: ${dinehub.wechat.weChatPayCertFilePath}
     notifyUrl: ${dinehub.wechat.notifyUrl}
     refundNotifyUrl: ${dinehub.wechat.refundNotifyUrl}
+  scan-order:
+    # URL encoded into each table's QR code; points at the dine-in H5 entry
+    h5-base-url: ${DINEHUB_H5_BASE_URL:http://localhost:8080/h5/index.html}
   shop:
     address: 南京市玄武区中山路100号
   baidu:

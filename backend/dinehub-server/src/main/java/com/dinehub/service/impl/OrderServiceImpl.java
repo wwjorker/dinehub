@@ -6,6 +6,7 @@ import com.alibaba.fastjson.JSONObject;
 import com.github.pagehelper.Page;
 import com.github.pagehelper.PageHelper;
 import com.dinehub.constant.MessageConstant;
+import com.dinehub.constant.StatusConstant;
 import com.dinehub.context.BaseContext;
 import com.dinehub.dto.*;
 import com.dinehub.entity.*;
@@ -49,6 +50,8 @@ public class OrderServiceImpl implements OrderService {
     @Autowired
     private AddressBookMapper addressBookMapper;
     @Autowired
+    private DiningTableMapper diningTableMapper;
+    @Autowired
     private ShoppingCartMapper shoppingCartMapper;
     @Autowired
     private UserMapper userMapper;
@@ -65,15 +68,25 @@ public class OrderServiceImpl implements OrderService {
     @Transactional
     public OrderSubmitVO submitOrder(OrdersSubmitDTO ordersSubmitDTO) {
 
-        //1. 处理各种业务异常（地址簿为空、购物车数据为空）
-        AddressBook addressBook = addressBookMapper.getById(ordersSubmitDTO.getAddressBookId());
-        if(addressBook == null){
-            //抛出业务异常
-            throw new AddressBookBusinessException(MessageConstant.ADDRESS_BOOK_IS_NULL);
+        //1. 处理各种业务异常（地址簿为空、桌台无效、购物车数据为空）
+        //堂食单带桌台令牌走扫码点单链路,外卖单走地址簿链路
+        boolean dineIn = ordersSubmitDTO.getTableToken() != null && !ordersSubmitDTO.getTableToken().isEmpty();
+        DiningTable diningTable = null;
+        AddressBook addressBook = null;
+        if (dineIn) {
+            diningTable = diningTableMapper.getByToken(ordersSubmitDTO.getTableToken());
+            if (diningTable == null || !StatusConstant.ENABLE.equals(diningTable.getStatus())) {
+                throw new OrderBusinessException(MessageConstant.TABLE_NOT_AVAILABLE);
+            }
+        } else {
+            addressBook = addressBookMapper.getById(ordersSubmitDTO.getAddressBookId());
+            if (addressBook == null) {
+                //抛出业务异常
+                throw new AddressBookBusinessException(MessageConstant.ADDRESS_BOOK_IS_NULL);
+            }
+            //检查用户的收货地址是否超出配送范围
+            //checkOutOfRange(addressBook.getCityName() + addressBook.getDistrictName() + addressBook.getDetail());
         }
-
-        //检查用户的收货地址是否超出配送范围
-        //checkOutOfRange(addressBook.getCityName() + addressBook.getDistrictName() + addressBook.getDetail());
 
         //查询当前用户的购物车数据
         Long userId = BaseContext.getCurrentId();
@@ -94,9 +107,18 @@ public class OrderServiceImpl implements OrderService {
         orders.setPayStatus(Orders.UN_PAID);
         orders.setStatus(Orders.PENDING_PAYMENT);
         orders.setNumber(String.valueOf(System.currentTimeMillis()));
-        orders.setAddress(addressBook.getDetail());
-        orders.setPhone(addressBook.getPhone());
-        orders.setConsignee(addressBook.getConsignee());
+        if (dineIn) {
+            //堂食单没有配送地址,履约落在桌台上
+            orders.setFulfillmentType(Orders.DINE_IN);
+            orders.setTableId(diningTable.getId());
+            orders.setAddress(diningTable.getName());
+            orders.setConsignee(diningTable.getName());
+        } else {
+            orders.setFulfillmentType(Orders.DELIVERY);
+            orders.setAddress(addressBook.getDetail());
+            orders.setPhone(addressBook.getPhone());
+            orders.setConsignee(addressBook.getConsignee());
+        }
         orders.setUserId(userId);
 
         orderMapper.insert(orders);

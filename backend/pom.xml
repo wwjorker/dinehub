@@ -28,6 +28,10 @@
         <knife4j>3.0.2</knife4j>
         <aspectj>1.9.4</aspectj>
         <jjwt>0.9.1</jjwt>
+        <zxing>3.5.3</zxing>
+        <!-- lift managed versions so tests run on recent JDKs -->
+        <mockito.version>4.11.0</mockito.version>
+        <byte-buddy.version>1.14.9</byte-buddy.version>
         <jaxb-api>2.3.1</jaxb-api>
         <poi>3.16</poi>
     </properties>
@@ -91,6 +95,18 @@
                 <groupId>io.jsonwebtoken</groupId>
                 <artifactId>jjwt</artifactId>
                 <version>${jjwt}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.google.zxing</groupId>
+                <artifactId>core</artifactId>
+                <version>${zxing}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.google.zxing</groupId>
+                <artifactId>javase</artifactId>
+                <version>${zxing}</version>
             </dependency>
 
             <dependency>

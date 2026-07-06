@@ -3,7 +3,7 @@ services:
     image: mysql:8.0
     container_name: dinehub-mysql
     ports:
-      - "3306:3306"
+      - "${DINEHUB_DB_PORT:-3306}:3306"
     environment:
       MYSQL_ROOT_PASSWORD: ${DINEHUB_DB_PASSWORD:-root}
       MYSQL_DATABASE: dinehub
@@ -21,7 +21,7 @@ services:
     image: redis:7-alpine
     container_name: dinehub-redis
     ports:
-      - "6379:6379"
+      - "${DINEHUB_REDIS_PORT:-6379}:6379"
     volumes:
       - redis-data:/data
     healthcheck:

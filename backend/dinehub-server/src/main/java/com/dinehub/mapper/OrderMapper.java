@@ -5,7 +5,9 @@ import com.dinehub.dto.GoodsSalesDTO;
 import com.dinehub.dto.OrdersPageQueryDTO;
 import com.dinehub.entity.Orders;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -32,6 +34,16 @@ public interface OrderMapper {
      * @param orders
      */
     void update(Orders orders);
+
+    /**
+     * 状态机条件取消:仅待支付(1)可转已取消(6)。
+     * 影响行数为0说明订单已支付或已取消,调用方据此实现幂等,
+     * 也避免了取消与支付回调间的竞态。
+     */
+    @Update("update orders set status = 6, cancel_reason = #{reason}, cancel_time = #{cancelTime}" +
+            " where id = #{id} and status = 1")
+    int cancelIfPending(@Param("id") Long id, @Param("reason") String reason,
+                        @Param("cancelTime") LocalDateTime cancelTime);
 
     /**
      * 分页条件查询并按下单时间排序

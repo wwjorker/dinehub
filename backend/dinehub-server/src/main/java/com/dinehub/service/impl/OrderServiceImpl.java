@@ -23,7 +23,9 @@ import com.dinehub.vo.OrderStatisticsVO;
 import com.dinehub.vo.OrderSubmitVO;
 import com.dinehub.vo.OrderVO;
 import com.dinehub.websocket.WebSocketServer;
+import com.dinehub.config.OrderCancelMQConfiguration;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -59,6 +61,14 @@ public class OrderServiceImpl implements OrderService {
     private WeChatPayUtil weChatPayUtil;
     @Autowired
     private WebSocketServer webSocketServer;
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
+
+    /**
+     * 超时取消实现:mq = 下单投递延迟消息(默认);task = 仅依赖定时扫描(对照方案)
+     */
+    @Value("${dinehub.order.cancel-mode:mq}")
+    private String cancelMode;
 
     /**
      * 用户下单
@@ -143,6 +153,12 @@ public class OrderServiceImpl implements OrderService {
 
         //4. 清空当前用户的购物车数据
         shoppingCartMapper.deleteByUserId(userId);
+
+        //投递延迟消息,TTL到期后若仍未支付则由消费者取消;定时扫描保留为低频兜底
+        if ("mq".equals(cancelMode)) {
+            rabbitTemplate.convertAndSend(OrderCancelMQConfiguration.ORDER_DELAY_EXCHANGE,
+                    OrderCancelMQConfiguration.ORDER_DELAY_ROUTING_KEY, orders.getId());
+        }
 
         //5. 封装VO返回结果
         OrderSubmitVO orderSubmitVO = OrderSubmitVO.builder()

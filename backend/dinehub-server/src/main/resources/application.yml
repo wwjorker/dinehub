@@ -73,6 +73,13 @@ dinehub:
     weChatPayCertFilePath: ${dinehub.wechat.weChatPayCertFilePath}
     notifyUrl: ${dinehub.wechat.notifyUrl}
     refundNotifyUrl: ${dinehub.wechat.refundNotifyUrl}
+  order:
+    # mq = delayed message cancellation with low-frequency scan fallback (default)
+    # task = polling-only cancellation kept as the comparison baseline
+    cancel-mode: ${DINEHUB_ORDER_CANCEL_MODE:mq}
+    # payment timeout; also the delay queue TTL — changing it requires deleting order.delay.queue
+    pay-timeout-millis: ${DINEHUB_ORDER_PAY_TIMEOUT_MILLIS:900000}
+    timeout-scan-cron: ${DINEHUB_ORDER_TIMEOUT_SCAN_CRON:0 0/10 * * * ?}
   seckill:
     # redis = Redis+Lua+MQ async persistence (default); db = row-lock deduction (benchmark baseline)
     mode: ${DINEHUB_SECKILL_MODE:redis}

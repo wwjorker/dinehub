@@ -1,0 +1,45 @@
+package com.dinehub.controller.user;
+
+import com.dinehub.context.BaseContext;
+import com.dinehub.result.Result;
+import com.dinehub.service.CouponService;
+import com.dinehub.vo.UserCouponVO;
+import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiOperation;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+
+/**
+ * C端-优惠券:限时秒杀抢券、我的券
+ */
+@RestController("userCouponController")
+@RequestMapping("/user/coupon")
+@Api(tags = "C端-优惠券接口")
+@Slf4j
+public class CouponController {
+
+    @Autowired
+    private CouponService couponService;
+
+    @PostMapping("/seckill/{couponId}")
+    @ApiOperation("限时秒杀抢券")
+    public Result<String> seckill(@PathVariable Long couponId) {
+        Long userId = BaseContext.getCurrentId();
+        couponService.seckill(couponId, userId);
+        //异步落库模式下此时资格已锁定,到账以我的券列表为准
+        return Result.success("抢购成功,处理中");
+    }
+
+    @GetMapping("/list")
+    @ApiOperation("我的优惠券")
+    public Result<List<UserCouponVO>> list() {
+        return Result.success(couponService.listByUserId(BaseContext.getCurrentId()));
+    }
+}

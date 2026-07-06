@@ -25,5 +25,12 @@ public class MessageConstant {
     public static final String ORDER_STATUS_ERROR = "订单状态错误";
     public static final String ORDER_NOT_FOUND = "订单不存在";
     public static final String TABLE_NOT_AVAILABLE = "桌台不存在或已停用";
+    public static final String COUPON_NOT_FOUND = "优惠券不存在";
+    public static final String COUPON_NOT_PUBLISHED = "优惠券未发布";
+    public static final String SECKILL_NOT_STARTED = "秒杀尚未开始";
+    public static final String SECKILL_ENDED = "秒杀已结束";
+    public static final String SECKILL_SOLD_OUT = "已抢完";
+    public static final String SECKILL_REPEAT = "请勿重复抢购";
+    public static final String COUPON_TIME_REQUIRED = "秒杀券必须设置起止时间";
 
 }

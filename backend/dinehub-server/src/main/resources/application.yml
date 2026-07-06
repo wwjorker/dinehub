@@ -21,6 +21,19 @@ spring:
     port: ${dinehub.redis.port}
     password: ${dinehub.redis.password}
     database: ${dinehub.redis.database}
+  rabbitmq:
+    host: ${DINEHUB_MQ_HOST:localhost}
+    port: ${DINEHUB_MQ_PORT:5672}
+    username: ${DINEHUB_MQ_USERNAME:dinehub}
+    password: ${DINEHUB_MQ_PASSWORD:dinehub}
+    listener:
+      simple:
+        # after retries are exhausted the message is rejected into the DLX
+        default-requeue-rejected: false
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 1000
 
 mybatis:
   mapper-locations: classpath:mapper/*.xml
@@ -60,6 +73,9 @@ dinehub:
     weChatPayCertFilePath: ${dinehub.wechat.weChatPayCertFilePath}
     notifyUrl: ${dinehub.wechat.notifyUrl}
     refundNotifyUrl: ${dinehub.wechat.refundNotifyUrl}
+  seckill:
+    # redis = Redis+Lua+MQ async persistence (default); db = row-lock deduction (benchmark baseline)
+    mode: ${DINEHUB_SECKILL_MODE:redis}
   scan-order:
     # URL encoded into each table's QR code; points at the dine-in H5 entry
     h5-base-url: ${DINEHUB_H5_BASE_URL:http://localhost:8080/h5/index.html}

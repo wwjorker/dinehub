@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.dinehub.mapper.CouponMapper">
+
+    <select id="pageQuery" resultType="com.dinehub.entity.Coupon">
+        select * from coupon
+        <where>
+            <if test="title != null and title != ''">
+                and title like concat('%',#{title},'%')
+            </if>
+            <if test="status != null">
+                and status = #{status}
+            </if>
+        </where>
+        order by create_time desc
+    </select>
+
+    <update id="update" parameterType="com.dinehub.entity.Coupon">
+        update coupon
+        <set>
+            <if test="title != null and title != ''">
+                title = #{title},
+            </if>
+            <if test="status != null">
+                status = #{status},
+            </if>
+            <if test="seckillStartTime != null">
+                seckill_start_time = #{seckillStartTime},
+            </if>
+            <if test="seckillEndTime != null">
+                seckill_end_time = #{seckillEndTime},
+            </if>
+            <if test="updateTime != null">
+                update_time = #{updateTime},
+            </if>
+            <if test="updateUser != null">
+                update_user = #{updateUser},
+            </if>
+        </set>
+        where id = #{id}
+    </update>
+
+</mapper>

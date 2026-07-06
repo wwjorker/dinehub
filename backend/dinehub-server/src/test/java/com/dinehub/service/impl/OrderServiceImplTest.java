@@ -15,6 +15,8 @@ import com.dinehub.mapper.DiningTableMapper;
 import com.dinehub.mapper.OrderDetailMapper;
 import com.dinehub.mapper.OrderMapper;
 import com.dinehub.mapper.ShoppingCartMapper;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -51,6 +54,8 @@ class OrderServiceImplTest {
     private DiningTableMapper diningTableMapper;
     @Mock
     private ShoppingCartMapper shoppingCartMapper;
+    @Mock
+    private RabbitTemplate rabbitTemplate;
 
     @InjectMocks
     private OrderServiceImpl orderService;
@@ -58,6 +63,7 @@ class OrderServiceImplTest {
     @BeforeEach
     void setUp() {
         BaseContext.setCurrentId(USER_ID);
+        ReflectionTestUtils.setField(orderService, "cancelMode", "mq");
     }
 
     @AfterEach
@@ -98,6 +104,24 @@ class OrderServiceImplTest {
         assertEquals(1, saved.getTablewareStatus());
         verify(addressBookMapper, never()).getById(anyLong());
         verify(shoppingCartMapper).deleteByUserId(USER_ID);
+        //mq mode schedules the payment-timeout cancellation
+        verify(rabbitTemplate).convertAndSend(anyString(), anyString(), (Object) any());
+    }
+
+    @Test
+    void taskModeDoesNotSendDelayMessage() {
+        ReflectionTestUtils.setField(orderService, "cancelMode", "task");
+        DiningTable table = DiningTable.builder().id(7L).name("A07").status(StatusConstant.ENABLE).build();
+        when(diningTableMapper.getByToken("tok-7")).thenReturn(table);
+        stubCartWithOneItem();
+
+        OrdersSubmitDTO dto = new OrdersSubmitDTO();
+        dto.setTableToken("tok-7");
+        dto.setAmount(new BigDecimal("36.00"));
+
+        orderService.submitOrder(dto);
+
+        verify(rabbitTemplate, never()).convertAndSend(anyString(), anyString(), (Object) any());
     }
 
     @Test

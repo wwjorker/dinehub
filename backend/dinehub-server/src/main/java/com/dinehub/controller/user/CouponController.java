@@ -1,6 +1,7 @@
 package com.dinehub.controller.user;
 
 import com.dinehub.context.BaseContext;
+import com.dinehub.ratelimit.RateLimit;
 import com.dinehub.result.Result;
 import com.dinehub.service.CouponService;
 import com.dinehub.vo.UserCouponVO;
@@ -30,6 +31,7 @@ public class CouponController {
 
     @PostMapping("/seckill/{couponId}")
     @ApiOperation("限时秒杀抢券")
+    @RateLimit(key = "seckill", permitsPerSecond = 500, capacity = 1000)
     public Result<String> seckill(@PathVariable Long couponId) {
         Long userId = BaseContext.getCurrentId();
         couponService.seckill(couponId, userId);

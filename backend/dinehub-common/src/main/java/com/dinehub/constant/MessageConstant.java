@@ -32,5 +32,6 @@ public class MessageConstant {
     public static final String SECKILL_SOLD_OUT = "已抢完";
     public static final String SECKILL_REPEAT = "请勿重复抢购";
     public static final String COUPON_TIME_REQUIRED = "秒杀券必须设置起止时间";
+    public static final String TOO_MANY_REQUESTS = "请求过于频繁,请稍后再试";
 
 }

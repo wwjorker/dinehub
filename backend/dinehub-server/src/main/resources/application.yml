@@ -28,6 +28,10 @@ spring:
     password: ${DINEHUB_MQ_PASSWORD:dinehub}
     listener:
       simple:
+        # benchmark showed a single consumer drains ~85 msg/s (fsync-bound);
+        # a small pool keeps the async backlog short without hammering the DB
+        concurrency: 4
+        max-concurrency: 8
         # after retries are exhausted the message is rejected into the DLX
         default-requeue-rejected: false
         retry:
@@ -73,6 +77,12 @@ dinehub:
     weChatPayCertFilePath: ${dinehub.wechat.weChatPayCertFilePath}
     notifyUrl: ${dinehub.wechat.notifyUrl}
     refundNotifyUrl: ${dinehub.wechat.refundNotifyUrl}
+  cache:
+    # dish list cache toggle; disable only for benchmarking the DB baseline
+    dish-enabled: ${DINEHUB_CACHE_DISH_ENABLED:true}
+    double-delete-delay-millis: ${DINEHUB_CACHE_DOUBLE_DELETE_DELAY:500}
+  rate-limit:
+    enabled: ${DINEHUB_RATE_LIMIT_ENABLED:true}
   order:
     # mq = delayed message cancellation with low-frequency scan fallback (default)
     # task = polling-only cancellation kept as the comparison baseline

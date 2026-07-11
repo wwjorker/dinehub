@@ -25,6 +25,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -136,6 +138,7 @@ public class DishServiceImpl implements DishService {
      *
      * @param dishDTO
      */
+    @Transactional
     public void updateWithFlavor(DishDTO dishDTO) {
         Dish dish = new Dish();
         BeanUtils.copyProperties(dishDTO, dish);
@@ -210,17 +213,20 @@ public class DishServiceImpl implements DishService {
      */
     public List<DishVO> listWithFlavor(Dish dish) {
         List<Dish> dishList = dishMapper.list(dish);
+        if (dishList == null || dishList.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        //一次批量取回全部口味再内存分组,避免逐菜品查询的N+1问题
+        List<Long> dishIds = dishList.stream().map(Dish::getId).collect(Collectors.toList());
+        Map<Long, List<DishFlavor>> flavorsByDish = dishFlavorMapper.getByDishIds(dishIds).stream()
+                .collect(Collectors.groupingBy(DishFlavor::getDishId));
 
         List<DishVO> dishVOList = new ArrayList<>();
-
         for (Dish d : dishList) {
             DishVO dishVO = new DishVO();
             BeanUtils.copyProperties(d,dishVO);
-
-            //根据菜品id查询对应的口味
-            List<DishFlavor> flavors = dishFlavorMapper.getByDishId(d.getId());
-
-            dishVO.setFlavors(flavors);
+            dishVO.setFlavors(flavorsByDish.getOrDefault(d.getId(), new ArrayList<>()));
             dishVOList.add(dishVO);
         }
 

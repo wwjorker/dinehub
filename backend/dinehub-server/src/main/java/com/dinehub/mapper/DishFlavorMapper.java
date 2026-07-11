@@ -29,4 +29,11 @@ public interface DishFlavorMapper {
      */
     @Select("select * from dish_flavor where dish_id = #{dishId}")
     List<DishFlavor> getByDishId(Long dishId);
+
+    /**
+     * 按菜品id集合批量查询口味,列表场景一次往返取回全部,消除逐菜品的N+1查询
+     * @param dishIds
+     * @return
+     */
+    List<DishFlavor> getByDishIds(List<Long> dishIds);
 }

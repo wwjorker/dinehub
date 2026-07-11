@@ -6,7 +6,12 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
 
+import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.ScanOptions;
+
 import javax.annotation.PreDestroy;
+import java.nio.charset.StandardCharsets;
+import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -34,11 +39,17 @@ public class CacheEvictor {
     });
 
     /**
-     * 立即按模式删除缓存
+     * 立即按模式删除缓存。用SCAN渐进遍历代替KEYS,避免大键空间下阻塞Redis
      */
     public void evict(String pattern) {
-        Set keys = redisTemplate.keys(pattern);
-        if (keys != null && !keys.isEmpty()) {
+        Set<String> keys = new HashSet<>();
+        ScanOptions options = ScanOptions.scanOptions().match(pattern).count(500).build();
+        try (Cursor<byte[]> cursor = redisTemplate.getConnectionFactory().getConnection().scan(options)) {
+            while (cursor.hasNext()) {
+                keys.add(new String(cursor.next(), StandardCharsets.UTF_8));
+            }
+        }
+        if (!keys.isEmpty()) {
             redisTemplate.delete(keys);
         }
     }

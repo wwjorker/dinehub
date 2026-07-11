@@ -9,4 +9,11 @@
             (#{df.dishId},#{df.name},#{df.value})
         </foreach>
     </insert>
+
+    <select id="getByDishIds" resultType="DishFlavor">
+        select * from dish_flavor where dish_id in
+        <foreach collection="list" item="dishId" open="(" separator="," close=")">
+            #{dishId}
+        </foreach>
+    </select>
 </mapper>

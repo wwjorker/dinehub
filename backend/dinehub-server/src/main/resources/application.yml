@@ -49,7 +49,9 @@ logging:
   level:
     com:
       dinehub:
-        mapper: debug
+        # switch mapper to debug locally to inspect SQL; keep info by default
+        # because per-request logging noticeably distorts throughput numbers
+        mapper: ${DINEHUB_LOG_MAPPER:info}
         service: info
         controller: info
 

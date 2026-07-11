@@ -128,6 +128,7 @@ class OrderServiceImplTest {
     void deliveryOrderStillUsesAddressBook() {
         AddressBook addressBook = new AddressBook();
         addressBook.setId(3L);
+        addressBook.setUserId(USER_ID);
         addressBook.setDetail("中山路100号");
         addressBook.setPhone("13800000000");
         addressBook.setConsignee("张三");

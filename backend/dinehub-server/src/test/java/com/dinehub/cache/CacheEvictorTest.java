@@ -1,44 +1,37 @@
 package com.dinehub.cache;
 
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import java.util.Collections;
-import java.util.concurrent.TimeUnit;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
-@ExtendWith(MockitoExtension.class)
 class CacheEvictorTest {
-
-    @Mock
-    private RedisTemplate redisTemplate;
-
-    @InjectMocks
-    private CacheEvictor cacheEvictor;
 
     @Test
     void doubleDeleteEvictsBeforeAndAfterDbWrite() {
-        ReflectionTestUtils.setField(cacheEvictor, "doubleDeleteDelayMillis", 50L);
-        when(redisTemplate.keys("dish_*")).thenReturn(Collections.singleton("dish_1"));
+        CacheEvictor evictor = spy(new CacheEvictor());
+        ReflectionTestUtils.setField(evictor, "doubleDeleteDelayMillis", 50L);
 
-        StringBuilder order = new StringBuilder();
-        cacheEvictor.doubleDelete("dish_*", () -> order.append("db"));
+        //记录事件顺序:首删必须先于DB写,第二删在延迟后异步到达
+        List<String> events = new CopyOnWriteArrayList<>();
+        doAnswer(inv -> {
+            events.add("evict");
+            return null;
+        }).when(evictor).evict("dish_*");
 
-        //first eviction is synchronous and precedes the db write's completion record
-        verify(redisTemplate, times(1)).delete(Collections.singleton("dish_1"));
-        org.junit.jupiter.api.Assertions.assertEquals("db", order.toString());
+        evictor.doubleDelete("dish_*", () -> events.add("db"));
 
-        //second eviction lands asynchronously after the configured delay
-        verify(redisTemplate, timeout(TimeUnit.SECONDS.toMillis(5)).times(2))
-                .delete(Collections.singleton("dish_1"));
+        verify(evictor, timeout(5000).times(2)).evict("dish_*");
+        assertEquals("evict", events.get(0));
+        assertEquals("db", events.get(1));
+        assertEquals("evict", events.get(2));
     }
 }

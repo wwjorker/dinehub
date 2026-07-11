@@ -90,6 +90,19 @@ class SeckillLuaScriptTest {
     }
 
     @Test
+    void boughtSetInheritsStockTtl() {
+        String stockKey = "t:stock:4", boughtKey = "t:bought:4";
+        template.opsForValue().set(stockKey, "5");
+        template.expire(stockKey, java.time.Duration.ofHours(1));
+
+        run(stockKey, boughtKey, 1);
+
+        Long ttl = template.getExpire(boughtKey);
+        org.junit.jupiter.api.Assertions.assertNotNull(ttl);
+        org.junit.jupiter.api.Assertions.assertTrue(ttl > 0, "bought set must expire with the stock key");
+    }
+
+    @Test
     void concurrentGrabsNeverOversell() throws InterruptedException {
         String stockKey = "t:stock:3", boughtKey = "t:bought:3";
         int stock = 50, users = 200;

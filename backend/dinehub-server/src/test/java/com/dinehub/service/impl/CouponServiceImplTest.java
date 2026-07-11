@@ -170,11 +170,36 @@ class CouponServiceImplTest {
         ValueOperations<String, String> valueOps = mock(ValueOperations.class);
         when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
         when(couponMapper.getById(10L)).thenReturn(publishedCoupon());
+        when(couponMapper.publishIfDraft(10L)).thenReturn(1);
+        when(userCouponMapper.listUserIdsByCouponId(10L)).thenReturn(Collections.emptyList());
 
         couponService.publish(10L);
 
         verify(valueOps).set(eq(CouponServiceImpl.STOCK_KEY_PREFIX + 10L), eq("100"));
-        verify(couponMapper).update(any(Coupon.class));
+    }
+
+    @Test
+    void republishIsRejectedAndDoesNotResetLedger() {
+        //重复发布会清空防重集合,让已领用户重复通过Lua;条件更新必须挡住它
+        when(couponMapper.getById(10L)).thenReturn(publishedCoupon());
+        when(couponMapper.publishIfDraft(10L)).thenReturn(0);
+
+        assertThrows(SeckillBusinessException.class, () -> couponService.publish(10L));
+        verify(stringRedisTemplate, never()).delete(anyString());
+    }
+
+    @Test
+    void sendFailureCompensatesTheSlot() {
+        when(couponMapper.getById(10L)).thenReturn(publishedCoupon());
+        //准入脚本:单个vararg参数
+        when(stringRedisTemplate.execute(any(RedisScript.class), anyList(), any()))
+                .thenReturn(CouponServiceImpl.SECKILL_GRANTED);
+        org.mockito.Mockito.doThrow(new RuntimeException("broker down"))
+                .when(rabbitTemplate).convertAndSend(anyString(), anyString(), any(SeckillMessage.class));
+
+        assertThrows(SeckillBusinessException.class, () -> couponService.seckill(10L, 1L));
+        //补偿脚本被执行(两个vararg参数:userId + 标记TTL)
+        verify(stringRedisTemplate).execute(any(RedisScript.class), anyList(), any(), any());
     }
 
     @Test

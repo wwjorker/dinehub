@@ -60,6 +60,27 @@ public class UserServiceImpl implements UserService {
     }
 
     /**
+     * 演示登录:以 demo:{昵称} 作为openid查找或创建用户,
+     * 让没有微信环境的H5演示端也能获得完整的用户身份
+     */
+    public User demoLogin(String nickname) {
+        if (nickname == null || nickname.trim().isEmpty()) {
+            throw new LoginFailedException(MessageConstant.LOGIN_FAILED);
+        }
+        String openid = "demo:" + nickname.trim();
+        User user = userMapper.getByOpenid(openid);
+        if (user == null) {
+            user = User.builder()
+                    .openid(openid)
+                    .name(nickname.trim())
+                    .createTime(LocalDateTime.now())
+                    .build();
+            userMapper.insert(user);
+        }
+        return user;
+    }
+
+    /**
      * 调用微信接口服务，获取微信用户的openid
      * @param code
      * @return

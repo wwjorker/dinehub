@@ -11,6 +11,7 @@ import org.springframework.http.converter.HttpMessageConverter;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
+import org.springframework.web.servlet.config.annotation.ViewControllerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurationSupport;
 import springfox.documentation.builders.ApiInfoBuilder;
 import springfox.documentation.builders.PathSelectors;
@@ -46,6 +47,7 @@ public class WebMvcConfiguration extends WebMvcConfigurationSupport {
         registry.addInterceptor(jwtTokenUserInterceptor)
                 .addPathPatterns("/user/**")
                 .excludePathPatterns("/user/user/login")
+                .excludePathPatterns("/user/user/demo-login")
                 .excludePathPatterns("/user/shop/status");
     }
 
@@ -95,8 +97,19 @@ public class WebMvcConfiguration extends WebMvcConfigurationSupport {
      * 设置静态资源映射，主要是访问接口文档（html、js、css）
      * @param registry
      */
+    /**
+     * H5目录访问跳转到入口页
+     * @param registry
+     */
+    protected void addViewControllers(ViewControllerRegistry registry) {
+        registry.addRedirectViewController("/h5", "/h5/index.html");
+        registry.addRedirectViewController("/h5/", "/h5/index.html");
+    }
+
     protected void addResourceHandlers(ResourceHandlerRegistry registry) {
         log.info("开始设置静态资源映射...");
+        //扫码点单H5(frontend/h5 构建产物),由后端直接托管,手机扫码即可访问
+        registry.addResourceHandler("/h5/**").addResourceLocations("classpath:/static/h5/");
         registry.addResourceHandler("/doc.html").addResourceLocations("classpath:/META-INF/resources/");
         registry.addResourceHandler("/webjars/**").addResourceLocations("classpath:/META-INF/resources/webjars/");
     }

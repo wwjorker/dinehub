@@ -5,6 +5,9 @@ import com.dinehub.dto.CouponPageQueryDTO;
 import com.dinehub.entity.Coupon;
 import com.dinehub.enumeration.OperationType;
 import com.github.pagehelper.Page;
+
+import java.util.List;
+
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Options;
@@ -25,6 +28,13 @@ public interface CouponMapper {
 
     @Select("select * from coupon where id = #{id}")
     Coupon getById(Long id);
+
+    /**
+     * C端可见的已发布秒杀券(未过期),按开抢时间排列
+     */
+    @Select("select * from coupon where status = 1 and type = 2" +
+            " and seckill_end_time > now() order by seckill_start_time")
+    List<Coupon> listActiveSeckill();
 
     Page<Coupon> pageQuery(CouponPageQueryDTO couponPageQueryDTO);
 

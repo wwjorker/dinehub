@@ -1,6 +1,7 @@
 package com.dinehub.controller.user;
 
 import com.dinehub.constant.JwtClaimsConstant;
+import com.dinehub.constant.MessageConstant;
 import com.dinehub.dto.UserLoginDTO;
 import com.dinehub.entity.User;
 import com.dinehub.properties.JwtProperties;
@@ -12,6 +13,7 @@ import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -29,6 +31,12 @@ public class UserController {
     private UserService userService;
     @Autowired
     private JwtProperties jwtProperties;
+
+    /**
+     * 演示登录开关:H5演示环境没有微信,提供昵称直登;生产环境必须关闭
+     */
+    @Value("${dinehub.demo-login.enabled:true}")
+    private boolean demoLoginEnabled;
 
     /**
      * 微信登录
@@ -54,5 +62,29 @@ public class UserController {
                 .token(token)
                 .build();
         return Result.success(userLoginVO);
+    }
+
+    /**
+     * 演示登录:凭昵称直登,给无微信环境的H5演示用
+     * @param userLoginDTO
+     * @return
+     */
+    @PostMapping("/demo-login")
+    @ApiOperation("演示登录(昵称直登,仅演示环境)")
+    public Result<UserLoginVO> demoLogin(@RequestBody UserLoginDTO userLoginDTO) {
+        if (!demoLoginEnabled) {
+            return Result.error(MessageConstant.LOGIN_FAILED);
+        }
+        User user = userService.demoLogin(userLoginDTO.getNickname());
+
+        Map<String, Object> claims = new HashMap<>();
+        claims.put(JwtClaimsConstant.USER_ID, user.getId());
+        String token = JwtUtil.createJWT(jwtProperties.getUserSecretKey(), jwtProperties.getUserTtl(), claims);
+
+        return Result.success(UserLoginVO.builder()
+                .id(user.getId())
+                .openid(user.getOpenid())
+                .token(token)
+                .build());
     }
 }

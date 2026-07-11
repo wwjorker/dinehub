@@ -1,6 +1,7 @@
 package com.dinehub.controller.user;
 
 import com.dinehub.context.BaseContext;
+import com.dinehub.entity.Coupon;
 import com.dinehub.ratelimit.RateLimit;
 import com.dinehub.result.Result;
 import com.dinehub.service.CouponService;
@@ -43,5 +44,11 @@ public class CouponController {
     @ApiOperation("我的优惠券")
     public Result<List<UserCouponVO>> list() {
         return Result.success(couponService.listByUserId(BaseContext.getCurrentId()));
+    }
+
+    @GetMapping("/available")
+    @ApiOperation("进行中的秒杀活动")
+    public Result<List<Coupon>> available() {
+        return Result.success(couponService.listActiveSeckill());
     }
 }

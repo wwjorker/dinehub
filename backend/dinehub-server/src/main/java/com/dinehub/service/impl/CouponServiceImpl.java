@@ -219,4 +219,8 @@ public class CouponServiceImpl implements CouponService {
     public List<UserCouponVO> listByUserId(Long userId) {
         return userCouponMapper.listByUserId(userId);
     }
+
+    public List<Coupon> listActiveSeckill() {
+        return couponMapper.listActiveSeckill();
+    }
 }

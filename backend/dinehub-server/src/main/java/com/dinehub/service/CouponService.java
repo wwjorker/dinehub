@@ -39,4 +39,9 @@ public interface CouponService {
      * 原子且幂等地回补一个抢购名额(同一requestId只补偿一次)
      */
     boolean compensate(Long couponId, Long userId, String requestId);
+
+    /**
+     * C端可见的进行中/未开始秒杀券
+     */
+    List<Coupon> listActiveSeckill();
 }

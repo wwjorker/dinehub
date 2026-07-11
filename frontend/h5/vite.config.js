@@ -8,12 +8,19 @@ export default defineConfig({
   base: '/h5/',
   build: {
     outDir: '../../backend/dinehub-server/src/main/resources/static/h5',
-    emptyOutDir: true
+    emptyOutDir: true,
+    rollupOptions: {
+      input: {
+        main: 'index.html',
+        ops: 'ops.html'
+      }
+    }
   },
   server: {
     port: 5173,
     proxy: {
-      '/user': { target: 'http://localhost:8080', changeOrigin: true }
+      '/user': { target: 'http://localhost:8080', changeOrigin: true },
+      '/admin': { target: 'http://localhost:8080', changeOrigin: true }
     }
   }
 })

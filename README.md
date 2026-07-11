@@ -7,7 +7,9 @@ DineHub 是一个面向单店/小连锁餐饮商家的一体化经营平台后�
 ## 功能全景
 
 - **商家管理端**:员工、分类、菜品、套餐、订单管理、营业统计、运营报表导出(POI)、来单提醒(WebSocket)。
-- **用户端**:菜品浏览(Redis 缓存)、购物车、外卖下单、微信支付对接。
+- **用户端 H5**(`/h5/`,Vue 3 + Vant):扫桌台二维码落地、演示登录、分类点单与口味选择、购物车、堂食下单、秒杀抢券(实时库存进度)、我的券与订单。
+- **运营台**(`/h5/ops.html`):商家登录、建桌台并预览二维码、创建/发布秒杀券、订单一览——演示最小闭环,完整管理能力见接口文档。
+- **用户端(接口)**:菜品浏览(Redis 缓存)、购物车、外卖下单、微信支付对接。
 - **扫码点单**:管理端维护桌台并生成二维码(zxing),顾客扫码后凭桌台令牌下堂食单,与外卖单共用订单主链路(履约方式分支),地址/配送环节自动跳过。
 - **限时秒杀优惠券**:Redis+Lua 原子准入(查库存/判重/扣减/记名一次往返)→ RabbitMQ 异步落库 → 唯一键幂等 → 重试→死信→原子幂等的库存回补(单 Lua + requestId 标记);发布走状态条件更新防重复预热,防重集合按 DB 持券记录重建,消息发送失败即时回补名额;DB 行锁方案保留为可切换的压测对照组(`dinehub.seckill.mode`)。
 - **订单超时取消**:TTL+死信实现延迟消息,消费者做状态条件更新(与支付回调竞态安全);原轮询任务降级为低频兜底扫描,双保险。
@@ -74,6 +76,7 @@ dinehub
 |   +-- dinehub-common   通用工具、异常、配置属性
 |   +-- dinehub-pojo     实体 / DTO / VO
 |   +-- dinehub-server   业务模块(controller / service / mapper / mq / ratelimit / cache)
++-- frontend/h5          点单 H5 与运营台(Vue 3 + Vite + Vant)
 +-- scripts/jmeter       压测脚本与汇总工具
 +-- docker-compose.yml   MySQL / Redis / RabbitMQ
 ```
@@ -87,7 +90,7 @@ cd backend
 java -jar dinehub-server/target/dinehub-server-1.0-SNAPSHOT.jar
 ```
 
-首次启动由 Flyway 自动建表并写入开发种子数据;接口文档见 `http://localhost:8080/doc.html`(管理端账号 admin/123456)。宿主端口冲突时可用 `DINEHUB_DB_PORT` 等变量覆盖(见 `docker-compose.yml` 与 `application-dev.yml`);所有敏感配置(数据库口令、OSS/微信支付密钥)一律环境变量注入,仓库不含任何真实凭据。
+首次启动由 Flyway 自动建表并写入开发种子数据。入口:点单 H5 `http://localhost:8080/h5/`、运营台 `http://localhost:8080/h5/ops.html`、接口文档 `http://localhost:8080/doc.html`(演示账号 admin/123456)。演示动线:运营台建桌台 → 查看二维码 → 手机扫码(同一局域网,二维码地址可用 `DINEHUB_H5_BASE_URL` 指到本机 IP)→ 点单下单;运营台创建并发布秒杀券 → H5 秒杀页抢券。H5 构建产物已入库;改前端后在 `frontend/h5` 内 `npm install && npm run build` 重新生成。C 端登录为昵称直登的演示模式(`dinehub.demo-login.enabled` 可关闭),正式环境应接入微信授权。宿主端口冲突时可用 `DINEHUB_DB_PORT` 等变量覆盖(见 `docker-compose.yml` 与 `application-dev.yml`);所有敏感配置(数据库口令、OSS/微信支付密钥)一律环境变量注入,仓库不含任何真实凭据。
 
 注意:Flyway 社区版要求 MySQL 8.0+;若临时使用 MySQL 5.7,需手动执行 `db/migration` 下的 SQL 并以 `SPRING_FLYWAY_ENABLED=false` 启动。
 
@@ -100,4 +103,3 @@ java -jar dinehub-server/target/dinehub-server-1.0-SNAPSHOT.jar
 - 秒杀消息投递升级 publisher confirm + 本地消息表;活动结束后的 Redis/DB 库存对账任务
 - 缓存一致性引入 Canal 订阅 binlog,把删除动作从业务代码剥离
 - 限流升级 Redis+Lua 全局令牌桶以支持多实例部署
-- 堂食 H5 点单前端

@@ -1,7 +1,9 @@
 package com.dinehub.service.impl;
 
+import com.dinehub.constant.MessageConstant;
 import com.dinehub.context.BaseContext;
 import com.dinehub.entity.AddressBook;
+import com.dinehub.exception.AddressBookBusinessException;
 import com.dinehub.mapper.AddressBookMapper;
 import com.dinehub.service.AddressBookService;
 import lombok.extern.slf4j.Slf4j;
@@ -38,13 +40,17 @@ public class AddressBookServiceImpl implements AddressBookService {
     }
 
     /**
-     * 根据id查询
+     * 根据id查询并校验归属:地址不存在或不属于当前用户一律按不存在处理,
+     * 防止用户端凭id横向越权读取/修改他人地址
      *
      * @param id
      * @return
      */
     public AddressBook getById(Long id) {
         AddressBook addressBook = addressBookMapper.getById(id);
+        if (addressBook == null || !addressBook.getUserId().equals(BaseContext.getCurrentId())) {
+            throw new AddressBookBusinessException(MessageConstant.ADDRESS_BOOK_IS_NULL);
+        }
         return addressBook;
     }
 
@@ -54,6 +60,8 @@ public class AddressBookServiceImpl implements AddressBookService {
      * @param addressBook
      */
     public void update(AddressBook addressBook) {
+        //先校验归属再更新
+        getById(addressBook.getId());
         addressBookMapper.update(addressBook);
     }
 
@@ -64,6 +72,9 @@ public class AddressBookServiceImpl implements AddressBookService {
      */
     @Transactional
     public void setDefault(AddressBook addressBook) {
+        //先校验归属
+        getById(addressBook.getId());
+
         //1、将当前用户的所有地址修改为非默认地址 update address_book set is_default = ? where user_id = ?
         addressBook.setIsDefault(0);
         addressBook.setUserId(BaseContext.getCurrentId());
@@ -80,6 +91,8 @@ public class AddressBookServiceImpl implements AddressBookService {
      * @param id
      */
     public void deleteById(Long id) {
+        //先校验归属再删除
+        getById(id);
         addressBookMapper.deleteById(id);
     }
 

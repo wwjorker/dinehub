@@ -30,6 +30,21 @@ public interface OrderMapper {
     Orders getByNumberAndUserId(String orderNumber, Long userId);
 
     /**
+     * 根据订单号查询订单(支付回调线程没有用户上下文,只能按单号定位)
+     */
+    @Select("select * from orders where number = #{orderNumber}")
+    Orders getByNumber(String orderNumber);
+
+    /**
+     * 状态机条件支付:仅待支付(1)可转待接单(2)。
+     * 影响行数为0说明订单已被超时取消或重复回调,调用方据此决定拒绝入账,
+     * 与超时取消的条件更新共同构成完整的状态机竞态防护。
+     */
+    @Update("update orders set status = 2, pay_status = 1, checkout_time = #{checkoutTime}" +
+            " where id = #{id} and status = 1")
+    int markPaidIfPending(@Param("id") Long id, @Param("checkoutTime") LocalDateTime checkoutTime);
+
+    /**
      * 修改订单信息
      * @param orders
      */

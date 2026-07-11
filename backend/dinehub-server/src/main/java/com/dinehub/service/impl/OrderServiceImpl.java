@@ -35,6 +35,7 @@ import org.springframework.util.CollectionUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -70,6 +71,9 @@ public class OrderServiceImpl implements OrderService {
     @Value("${dinehub.order.cancel-mode:mq}")
     private String cancelMode;
 
+    //外卖固定配送费(元)
+    private static final BigDecimal DELIVERY_FEE = new BigDecimal("6");
+
     /**
      * 用户下单
      * @param ordersSubmitDTO
@@ -90,7 +94,8 @@ public class OrderServiceImpl implements OrderService {
             }
         } else {
             addressBook = addressBookMapper.getById(ordersSubmitDTO.getAddressBookId());
-            if (addressBook == null) {
+            //地址不存在或不属于当前用户都按无效地址处理,防止横向越权
+            if (addressBook == null || !addressBook.getUserId().equals(BaseContext.getCurrentId())) {
                 //抛出业务异常
                 throw new AddressBookBusinessException(MessageConstant.ADDRESS_BOOK_IS_NULL);
             }
@@ -116,7 +121,18 @@ public class OrderServiceImpl implements OrderService {
         orders.setOrderTime(LocalDateTime.now());
         orders.setPayStatus(Orders.UN_PAID);
         orders.setStatus(Orders.PENDING_PAYMENT);
-        orders.setNumber(String.valueOf(System.currentTimeMillis()));
+        //订单号:时间戳+随机段防并发冲突,uk_orders_number唯一索引兜底
+        orders.setNumber(System.currentTimeMillis()
+                + String.format("%06d", ThreadLocalRandom.current().nextInt(1_000_000)));
+        //金额以服务端购物车快照重算,不信任客户端提交值
+        BigDecimal itemsAmount = shoppingCartList.stream()
+                .map(c -> c.getAmount().multiply(BigDecimal.valueOf(c.getNumber())))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal packFee = ordersSubmitDTO.getPackAmount() == null
+                ? BigDecimal.ZERO : BigDecimal.valueOf(ordersSubmitDTO.getPackAmount());
+        //外卖收固定配送费,堂食没有配送环节
+        BigDecimal deliveryFee = dineIn ? BigDecimal.ZERO : DELIVERY_FEE;
+        orders.setAmount(itemsAmount.add(packFee).add(deliveryFee));
         //堂食H5不传配送/餐具选项,这两列非空,给出与外卖端一致的默认值
         if (orders.getDeliveryStatus() == null) {
             orders.setDeliveryStatus(1);
@@ -252,10 +268,19 @@ public class OrderServiceImpl implements OrderService {
         Long userId = BaseContext.getCurrentId();
         User user = userMapper.getById(userId);
 
+        //校验订单归属与状态,金额以数据库为准,不信任客户端
+        Orders order = orderMapper.getByNumberAndUserId(ordersPaymentDTO.getOrderNumber(), userId);
+        if (order == null) {
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
+        }
+        if (!Orders.PENDING_PAYMENT.equals(order.getStatus())) {
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
+
         //调用微信支付接口，生成预支付交易单
         JSONObject jsonObject = weChatPayUtil.pay(
                 ordersPaymentDTO.getOrderNumber(), //商户订单号
-                new BigDecimal(0.01), //支付金额，单位 元
+                order.getAmount(), //支付金额，单位 元
                 "食汇订单", //商品描述
                 user.getOpenid() //微信用户的openid
         );
@@ -276,21 +301,20 @@ public class OrderServiceImpl implements OrderService {
      * @param outTradeNo
      */
     public void paySuccess(String outTradeNo) {
-        // 当前登录用户id
-        Long userId = BaseContext.getCurrentId();
+        //回调线程没有用户上下文,按订单号定位
+        Orders ordersDB = orderMapper.getByNumber(outTradeNo);
+        if (ordersDB == null) {
+            log.error("pay callback for unknown order {}", outTradeNo);
+            return;
+        }
 
-        // 根据订单号查询当前用户的订单
-        Orders ordersDB = orderMapper.getByNumberAndUserId(outTradeNo, userId);
-
-        // 根据订单id更新订单的状态、支付方式、支付状态、结账时间
-        Orders orders = Orders.builder()
-                .id(ordersDB.getId())
-                .status(Orders.TO_BE_CONFIRMED)
-                .payStatus(Orders.PAID)
-                .checkoutTime(LocalDateTime.now())
-                .build();
-
-        orderMapper.update(orders);
+        //状态机条件更新:订单已被超时取消时影响0行,迟到的回调不允许把已取消订单改回待接单
+        int rows = orderMapper.markPaidIfPending(ordersDB.getId(), LocalDateTime.now());
+        if (rows == 0) {
+            log.error("pay callback for order {} in status {}, needs manual refund handling",
+                    outTradeNo, ordersDB.getStatus());
+            return;
+        }
 
         //通过websocket向客户端浏览器推送消息 type orderId content
         Map map = new HashMap();
@@ -347,9 +371,21 @@ public class OrderServiceImpl implements OrderService {
      * @param id
      * @return
      */
-    public OrderVO details(Long id) {
-        // 根据id查询订单
+    /**
+     * 查询订单并校验归属:订单不存在或不属于当前用户一律按不存在处理,
+     * 防止用户端凭订单id横向越权读取/操作他人订单
+     */
+    private Orders getOwnedOrder(Long id) {
         Orders orders = orderMapper.getById(id);
+        if (orders == null || !orders.getUserId().equals(BaseContext.getCurrentId())) {
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
+        }
+        return orders;
+    }
+
+    public OrderVO details(Long id) {
+        // 根据id查询订单并校验归属,防止横向越权
+        Orders orders = getOwnedOrder(id);
 
         // 查询该订单对应的菜品/套餐明细
         List<OrderDetail> orderDetailList = orderDetailMapper.getByOrderId(orders.getId());
@@ -368,13 +404,8 @@ public class OrderServiceImpl implements OrderService {
      * @param id
      */
     public void userCancelById(Long id) throws Exception {
-        // 根据id查询订单
-        Orders ordersDB = orderMapper.getById(id);
-
-        // 校验订单是否存在
-        if (ordersDB == null) {
-            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
-        }
+        // 根据id查询订单并校验归属,防止横向越权
+        Orders ordersDB = getOwnedOrder(id);
 
         //订单状态 1待付款 2待接单 3已接单 4派送中 5已完成 6已取消
         if (ordersDB.getStatus() > 2) {
@@ -412,6 +443,9 @@ public class OrderServiceImpl implements OrderService {
     public void repetition(Long id) {
         // 查询当前用户id
         Long userId = BaseContext.getCurrentId();
+
+        // 校验订单归属,防止横向越权
+        getOwnedOrder(id);
 
         // 根据订单id查询当前订单详情
         List<OrderDetail> orderDetailList = orderDetailMapper.getByOrderId(id);
@@ -638,13 +672,8 @@ public class OrderServiceImpl implements OrderService {
      * @param id
      */
     public void reminder(Long id) {
-        // 根据id查询订单
-        Orders ordersDB = orderMapper.getById(id);
-
-        // 校验订单是否存在
-        if (ordersDB == null) {
-            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
-        }
+        // 根据id查询订单并校验归属,防止横向越权
+        Orders ordersDB = getOwnedOrder(id);
 
         Map map = new HashMap();
         map.put("type",2); //1表示来单提醒 2表示客户催单

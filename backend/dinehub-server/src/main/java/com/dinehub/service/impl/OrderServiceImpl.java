@@ -300,11 +300,19 @@ public class OrderServiceImpl implements OrderService {
      *
      * @param outTradeNo
      */
-    public void paySuccess(String outTradeNo) {
+    public void paySuccess(String outTradeNo, Integer payerTotalFen) {
         //回调线程没有用户上下文,按订单号定位
         Orders ordersDB = orderMapper.getByNumber(outTradeNo);
         if (ordersDB == null) {
             log.error("pay callback for unknown order {}", outTradeNo);
+            return;
+        }
+
+        //实付金额必须与订单金额一致,否则拒绝入账并告警(金额单位:分)
+        int expectedFen = ordersDB.getAmount().movePointRight(2).intValueExact();
+        if (payerTotalFen == null || payerTotalFen != expectedFen) {
+            log.error("pay callback amount mismatch for order {}: paid {} expected {}, rejected",
+                    outTradeNo, payerTotalFen, expectedFen);
             return;
         }
 

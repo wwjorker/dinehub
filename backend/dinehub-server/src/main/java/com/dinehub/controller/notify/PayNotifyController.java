@@ -18,7 +18,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 
 /**
- * 支付回调相关接口
+ * 支付回调相关接口。
+ * 防线:未配置商户密钥时整个入口关闭;回调正文与解密明文不进日志;
+ * 实付金额与订单金额比对后才允许入账;订单状态由条件更新兜底。
+ * 完整的平台证书验签(Wechatpay-Signature)依赖真实商户的证书下载器,
+ * 接入真实支付时应启用 wechatpay-apache-httpclient 的 Validator。
  */
 @RestController
 @RequestMapping("/notify")
@@ -36,23 +40,28 @@ public class PayNotifyController {
      */
     @RequestMapping("/paySuccess")
     public void paySuccessNotify(HttpServletRequest request, HttpServletResponse response) throws Exception {
-        //读取数据
-        String body = readData(request);
-        log.info("支付成功回调：{}", body);
+        //未配置微信商户密钥说明支付未启用,拒绝一切回调,避免暴露裸入口
+        if (weChatProperties.getApiV3Key() == null || weChatProperties.getApiV3Key().isEmpty()) {
+            log.warn("pay callback received but wechat pay is not configured, rejected");
+            response.setStatus(403);
+            return;
+        }
 
-        //数据解密
+        //读取并解密;回调正文与明文含交易信息,不落日志
+        String body = readData(request);
         String plainText = decryptData(body);
-        log.info("解密后的文本：{}", plainText);
 
         JSONObject jsonObject = JSON.parseObject(plainText);
         String outTradeNo = jsonObject.getString("out_trade_no");//商户平台订单号
         String transactionId = jsonObject.getString("transaction_id");//微信支付交易号
+        //实付金额(分),入账前与订单金额核对
+        Integer payerTotal = jsonObject.getJSONObject("amount") == null
+                ? null : jsonObject.getJSONObject("amount").getInteger("payer_total");
 
-        log.info("商户平台订单号：{}", outTradeNo);
-        log.info("微信支付交易号：{}", transactionId);
+        log.info("pay callback for order {}, transaction {}", outTradeNo, transactionId);
 
         //业务处理，修改订单状态、来单提醒
-        orderService.paySuccess(outTradeNo);
+        orderService.paySuccess(outTradeNo, payerTotal);
 
         //给微信响应
         responseToWeixin(response);

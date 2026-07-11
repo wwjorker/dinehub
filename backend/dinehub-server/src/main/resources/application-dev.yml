@@ -1,6 +1,8 @@
 # Local development profile. Credentials come from environment variables with
 # harmless local defaults — never commit real secrets here.
 dinehub:
+  demo-login:
+    enabled: ${DINEHUB_DEMO_LOGIN:true}
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     host: ${DINEHUB_DB_HOST:localhost}

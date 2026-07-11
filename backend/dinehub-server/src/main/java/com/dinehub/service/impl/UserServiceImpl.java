@@ -8,6 +8,7 @@ import com.dinehub.entity.User;
 import com.dinehub.exception.LoginFailedException;
 import com.dinehub.mapper.UserMapper;
 import com.dinehub.properties.WeChatProperties;
+import org.springframework.dao.DuplicateKeyException;
 import com.dinehub.service.UserService;
 import com.dinehub.utils.HttpClientUtil;
 import lombok.extern.slf4j.Slf4j;
@@ -64,18 +65,24 @@ public class UserServiceImpl implements UserService {
      * 让没有微信环境的H5演示端也能获得完整的用户身份
      */
     public User demoLogin(String nickname) {
-        if (nickname == null || nickname.trim().isEmpty()) {
+        //昵称仅允许中文/字母/数字,长度1~12,防注入与脏数据
+        if (nickname == null || !nickname.trim().matches("[一-龥A-Za-z0-9]{1,12}")) {
             throw new LoginFailedException(MessageConstant.LOGIN_FAILED);
         }
         String openid = "demo:" + nickname.trim();
         User user = userMapper.getByOpenid(openid);
         if (user == null) {
-            user = User.builder()
-                    .openid(openid)
-                    .name(nickname.trim())
-                    .createTime(LocalDateTime.now())
-                    .build();
-            userMapper.insert(user);
+            try {
+                user = User.builder()
+                        .openid(openid)
+                        .name(nickname.trim())
+                        .createTime(LocalDateTime.now())
+                        .build();
+                userMapper.insert(user);
+            } catch (DuplicateKeyException e) {
+                //并发同昵称首登:唯一键冲突后重查,两个请求拿到同一用户
+                user = userMapper.getByOpenid(openid);
+            }
         }
         return user;
     }

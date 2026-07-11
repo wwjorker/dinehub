@@ -5,6 +5,7 @@ import com.dinehub.constant.MessageConstant;
 import com.dinehub.dto.UserLoginDTO;
 import com.dinehub.entity.User;
 import com.dinehub.properties.JwtProperties;
+import com.dinehub.ratelimit.RateLimit;
 import com.dinehub.result.Result;
 import com.dinehub.service.UserService;
 import com.dinehub.utils.JwtUtil;
@@ -71,6 +72,7 @@ public class UserController {
      */
     @PostMapping("/demo-login")
     @ApiOperation("演示登录(昵称直登,仅演示环境)")
+    @RateLimit(key = "demo-login", permitsPerSecond = 5, capacity = 10)
     public Result<UserLoginVO> demoLogin(@RequestBody UserLoginDTO userLoginDTO) {
         if (!demoLoginEnabled) {
             return Result.error(MessageConstant.LOGIN_FAILED);

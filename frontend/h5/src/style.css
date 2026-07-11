@@ -1,0 +1,37 @@
+:root {
+  --brand: #d43f2f;
+  --brand-light: #fbeeec;
+  --ink: #2b2018;
+  --paper: #f7f4f0;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+.page {
+  padding-bottom: 66px;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+.dish-avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 20px;
+  font-weight: 600;
+  flex: none;
+}
+
+.price {
+  color: var(--brand);
+  font-weight: 600;
+}

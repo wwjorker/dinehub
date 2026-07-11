@@ -6,6 +6,7 @@ notes/
 
 # build output
 target/
+node_modules/
 *.class
 *.jar
 !.mvn/wrapper/maven-wrapper.jar

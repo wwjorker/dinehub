@@ -11,4 +11,12 @@ if redis.call('sismember', KEYS[2], ARGV[1]) == 1 then
 end
 redis.call('decr', KEYS[1])
 redis.call('sadd', KEYS[2], ARGV[1])
+-- the set is created lazily by the first grant, so it may miss the TTL that
+-- publish put on the stock key; align them to avoid a permanent dirty key
+if redis.call('ttl', KEYS[2]) == -1 then
+    local stockTtl = redis.call('ttl', KEYS[1])
+    if stockTtl > 0 then
+        redis.call('expire', KEYS[2], stockTtl)
+    end
+end
 return 0

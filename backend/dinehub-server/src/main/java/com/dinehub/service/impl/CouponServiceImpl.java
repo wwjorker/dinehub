@@ -38,6 +38,7 @@ public class CouponServiceImpl implements CouponService {
 
     public static final String STOCK_KEY_PREFIX = "seckill:stock:";
     public static final String BOUGHT_KEY_PREFIX = "seckill:bought:";
+    public static final String COMPENSATED_KEY_PREFIX = "seckill:compensated:";
     //活动结束后再保留一天,避免脏key常驻
     private static final Duration KEY_TTL_MARGIN = Duration.ofDays(1);
 
@@ -64,11 +65,29 @@ public class CouponServiceImpl implements CouponService {
     private TransactionTemplate transactionTemplate;
 
     private final DefaultRedisScript<Long> seckillScript;
+    private final DefaultRedisScript<Long> compensateScript;
 
     public CouponServiceImpl() {
         seckillScript = new DefaultRedisScript<>();
         seckillScript.setLocation(new org.springframework.core.io.ClassPathResource("lua/seckill.lua"));
         seckillScript.setResultType(Long.class);
+        compensateScript = new DefaultRedisScript<>();
+        compensateScript.setLocation(new org.springframework.core.io.ClassPathResource("lua/seckill_compensate.lua"));
+        compensateScript.setResultType(Long.class);
+    }
+
+    /**
+     * 原子且幂等地回补一个抢购名额:同一requestId只会补偿一次。
+     * 用于消息发送失败的即时回滚与死信队列的最终补偿。
+     */
+    public boolean compensate(Long couponId, Long userId, String requestId) {
+        List<String> keys = Arrays.asList(
+                COMPENSATED_KEY_PREFIX + requestId,
+                STOCK_KEY_PREFIX + couponId,
+                BOUGHT_KEY_PREFIX + couponId);
+        Long result = stringRedisTemplate.execute(compensateScript, keys,
+                String.valueOf(userId), String.valueOf(Duration.ofDays(1).getSeconds()));
+        return result != null && result == 1L;
     }
 
     public Coupon save(CouponDTO couponDTO) {
@@ -95,19 +114,29 @@ public class CouponServiceImpl implements CouponService {
         if (coupon == null) {
             throw new SeckillBusinessException(MessageConstant.COUPON_NOT_FOUND);
         }
+        //条件更新防重复发布:重复发布会重置Redis防重账本,让已领用户再次通过Lua
+        int rows = couponMapper.publishIfDraft(id);
+        if (rows == 0) {
+            throw new SeckillBusinessException(MessageConstant.COUPON_ALREADY_PUBLISHED);
+        }
         //预热:把DB剩余库存装载进Redis,作为抢购期间的资格账本
         if (Coupon.TYPE_SECKILL.equals(coupon.getType())) {
             String stockKey = STOCK_KEY_PREFIX + id;
             String boughtKey = BOUGHT_KEY_PREFIX + id;
             stringRedisTemplate.opsForValue().set(stockKey, String.valueOf(coupon.getRemainingStock()));
+            //防重集合以DB持券记录为准重建,Redis数据丢失后重新发布也不会破坏一人一单
             stringRedisTemplate.delete(boughtKey);
+            List<Long> holders = userCouponMapper.listUserIdsByCouponId(id);
+            if (!holders.isEmpty()) {
+                String[] members = holders.stream().map(String::valueOf).toArray(String[]::new);
+                stringRedisTemplate.opsForSet().add(boughtKey, members);
+            }
             Duration ttl = Duration.between(LocalDateTime.now(), coupon.getSeckillEndTime()).plus(KEY_TTL_MARGIN);
             if (!ttl.isNegative()) {
                 stringRedisTemplate.expire(stockKey, ttl);
+                stringRedisTemplate.expire(boughtKey, ttl);
             }
         }
-        Coupon published = Coupon.builder().id(id).status(Coupon.STATUS_PUBLISHED).build();
-        couponMapper.update(published);
         log.info("coupon {} published, stock preheated: {}", id, coupon.getRemainingStock());
     }
 
@@ -152,8 +181,15 @@ public class CouponServiceImpl implements CouponService {
                 .couponId(couponId)
                 .requestId(UUID.randomUUID().toString())
                 .build();
-        rabbitTemplate.convertAndSend(RabbitMQConfiguration.SECKILL_EXCHANGE,
-                RabbitMQConfiguration.SECKILL_ROUTING_KEY, message);
+        try {
+            rabbitTemplate.convertAndSend(RabbitMQConfiguration.SECKILL_EXCHANGE,
+                    RabbitMQConfiguration.SECKILL_ROUTING_KEY, message);
+        } catch (Exception e) {
+            //Redis已扣但消息没发出去:立刻把名额还回去,否则名额被永久占用
+            compensate(couponId, userId, message.getRequestId());
+            log.error("seckill message send failed, slot compensated: {}", message, e);
+            throw new SeckillBusinessException(MessageConstant.SECKILL_BUSY);
+        }
         log.info("seckill granted, message sent: {}", message);
     }
 

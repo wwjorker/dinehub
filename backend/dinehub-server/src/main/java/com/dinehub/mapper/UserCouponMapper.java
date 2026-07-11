@@ -5,6 +5,7 @@ import com.dinehub.vo.UserCouponVO;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Options;
+import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
 
@@ -20,4 +21,10 @@ public interface UserCouponMapper {
     void insert(UserCoupon userCoupon);
 
     List<UserCouponVO> listByUserId(Long userId);
+
+    /**
+     * 已持券用户id,发布/重新预热时用DB数据重建Redis防重集合
+     */
+    @Select("select user_id from user_coupon where coupon_id = #{couponId}")
+    List<Long> listUserIdsByCouponId(Long couponId);
 }

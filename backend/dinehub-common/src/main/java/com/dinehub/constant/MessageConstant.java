@@ -33,5 +33,7 @@ public class MessageConstant {
     public static final String SECKILL_REPEAT = "请勿重复抢购";
     public static final String COUPON_TIME_REQUIRED = "秒杀券必须设置起止时间";
     public static final String TOO_MANY_REQUESTS = "请求过于频繁,请稍后再试";
+    public static final String COUPON_ALREADY_PUBLISHED = "优惠券已发布,不能重复发布";
+    public static final String SECKILL_BUSY = "系统繁忙,请重试";
 
 }

@@ -34,4 +34,9 @@ public interface CouponService {
      * 我的券列表
      */
     List<UserCouponVO> listByUserId(Long userId);
+
+    /**
+     * 原子且幂等地回补一个抢购名额(同一requestId只补偿一次)
+     */
+    boolean compensate(Long couponId, Long userId, String requestId);
 }

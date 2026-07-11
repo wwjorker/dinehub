@@ -32,6 +32,13 @@ public interface CouponMapper {
     void update(Coupon coupon);
 
     /**
+     * 条件发布:仅未发布(0)可转已发布(1)。影响行数为0说明已发布过,
+     * 调用方据此拒绝重复发布,避免重置Redis防重账本导致同一用户重复抢到。
+     */
+    @Update("update coupon set status = 1 where id = #{id} and status = 0")
+    int publishIfDraft(Long id);
+
+    /**
      * 行级条件扣减:库存不足时影响行数为0,这是DB侧防超卖的关键
      */
     @Update("update coupon set remaining_stock = remaining_stock - 1" +

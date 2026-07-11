@@ -2,6 +2,9 @@ package com.dinehub.handler;
 
 import com.dinehub.constant.MessageConstant;
 import com.dinehub.exception.BaseException;
+import com.dinehub.exception.RateLimitException;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import com.dinehub.result.Result;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -15,6 +18,17 @@ import java.sql.SQLIntegrityConstraintViolationException;
 @RestControllerAdvice
 @Slf4j
 public class GlobalExceptionHandler {
+
+    /**
+     * 限流触发返回429,便于客户端与网关按标准语义做退避
+     * @param ex
+     * @return
+     */
+    @ExceptionHandler
+    @ResponseStatus(HttpStatus.TOO_MANY_REQUESTS)
+    public Result exceptionHandler(RateLimitException ex){
+        return Result.error(ex.getMessage());
+    }
 
     /**
      * 捕获业务异常

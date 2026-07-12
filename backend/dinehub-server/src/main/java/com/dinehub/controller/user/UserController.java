@@ -36,7 +36,7 @@ public class UserController {
     /**
      * 演示登录开关:H5演示环境没有微信,提供昵称直登;生产环境必须关闭
      */
-    @Value("${dinehub.demo-login.enabled:true}")
+    @Value("${dinehub.demo-login.enabled:false}")
     private boolean demoLoginEnabled;
 
     /**

@@ -72,7 +72,9 @@ class DineHubInfrastructureIntegrationTest {
         registry.add("dinehub.datasource.host", MYSQL::getHost);
         registry.add("dinehub.datasource.port", () -> MYSQL.getMappedPort(3306));
         registry.add("dinehub.datasource.database", MYSQL::getDatabaseName);
-        registry.add("dinehub.datasource.username", MYSQL::getUsername);
+        // Flyway's MySQL support reads session variables from performance_schema;
+        // the container's database-scoped test user intentionally lacks that grant.
+        registry.add("dinehub.datasource.username", () -> "root");
         registry.add("dinehub.datasource.password", MYSQL::getPassword);
         registry.add("dinehub.redis.host", REDIS::getHost);
         registry.add("dinehub.redis.port", () -> REDIS.getMappedPort(6379));

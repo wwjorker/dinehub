@@ -128,8 +128,10 @@ public class OrderServiceImpl implements OrderService {
         BigDecimal itemsAmount = shoppingCartList.stream()
                 .map(c -> c.getAmount().multiply(BigDecimal.valueOf(c.getNumber())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal packFee = ordersSubmitDTO.getPackAmount() == null
-                ? BigDecimal.ZERO : BigDecimal.valueOf(ordersSubmitDTO.getPackAmount());
+        //打包费由服务端按明细件数定价(外卖每件1元),不信任客户端提交值
+        int totalItems = shoppingCartList.stream().mapToInt(ShoppingCart::getNumber).sum();
+        BigDecimal packFee = dineIn ? BigDecimal.ZERO : BigDecimal.valueOf(totalItems);
+        orders.setPackAmount(dineIn ? 0 : totalItems);
         //外卖收固定配送费,堂食没有配送环节
         BigDecimal deliveryFee = dineIn ? BigDecimal.ZERO : DELIVERY_FEE;
         orders.setAmount(itemsAmount.add(packFee).add(deliveryFee));
@@ -425,22 +427,25 @@ public class OrderServiceImpl implements OrderService {
 
         // 订单处于待接单状态下取消，需要进行退款
         if (ordersDB.getStatus().equals(Orders.TO_BE_CONFIRMED)) {
-            //调用微信支付退款接口
+            //调用微信支付退款接口;退款单号独立于订单号,金额取库内实际值
             weChatPayUtil.refund(
                     ordersDB.getNumber(), //商户订单号
-                    ordersDB.getNumber(), //商户退款单号
-                    new BigDecimal(0.01),//退款金额，单位 元
-                    new BigDecimal(0.01));//原订单金额
+                    "R" + ordersDB.getNumber(), //商户退款单号(唯一退款请求)
+                    ordersDB.getAmount(),//退款金额，单位 元
+                    ordersDB.getAmount());//原订单金额
 
             //支付状态修改为 退款
             orders.setPayStatus(Orders.REFUND);
         }
 
-        // 更新订单状态、取消原因、取消时间
+        // 乐观状态迁移:以读取时的状态为条件,支付回调等并发操作抢先则本次取消失败
         orders.setStatus(Orders.CANCELLED);
         orders.setCancelReason("用户取消");
         orders.setCancelTime(LocalDateTime.now());
-        orderMapper.update(orders);
+        int rows = orderMapper.transitionStatus(orders, ordersDB.getStatus());
+        if (rows == 0) {
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
     }
 
     /**
@@ -561,7 +566,11 @@ public class OrderServiceImpl implements OrderService {
                 .status(Orders.CONFIRMED)
                 .build();
 
-        orderMapper.update(orders);
+        //仅待接单(2)可转已接单,并发取消/超时抢先则接单失败
+        int rows = orderMapper.transitionStatus(orders, Orders.TO_BE_CONFIRMED);
+        if (rows == 0) {
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
     }
 
     /**
@@ -581,23 +590,26 @@ public class OrderServiceImpl implements OrderService {
         //支付状态
         Integer payStatus = ordersDB.getPayStatus();
         if (payStatus == Orders.PAID) {
-            //用户已支付，需要退款
-            String refund = weChatPayUtil.refund(
+            //用户已支付，需要退款;退款单号独立,金额取库内实际值
+            weChatPayUtil.refund(
                     ordersDB.getNumber(),
-                    ordersDB.getNumber(),
-                    new BigDecimal(0.01),
-                    new BigDecimal(0.01));
-            log.info("申请退款：{}", refund);
+                    "R" + ordersDB.getNumber(),
+                    ordersDB.getAmount(),
+                    ordersDB.getAmount());
+            log.info("refund requested for order {}", ordersDB.getNumber());
         }
 
-        // 拒单需要退款，根据订单id更新订单状态、拒单原因、取消时间
+        // 乐观状态迁移:仅待接单可拒单
         Orders orders = new Orders();
         orders.setId(ordersDB.getId());
         orders.setStatus(Orders.CANCELLED);
         orders.setRejectionReason(ordersRejectionDTO.getRejectionReason());
         orders.setCancelTime(LocalDateTime.now());
 
-        orderMapper.update(orders);
+        int rows = orderMapper.transitionStatus(orders, Orders.TO_BE_CONFIRMED);
+        if (rows == 0) {
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
     }
 
     /**
@@ -608,26 +620,33 @@ public class OrderServiceImpl implements OrderService {
     public void cancel(OrdersCancelDTO ordersCancelDTO) throws Exception {
         // 根据id查询订单
         Orders ordersDB = orderMapper.getById(ordersCancelDTO.getId());
+        if (ordersDB == null || ordersDB.getStatus() >= Orders.COMPLETED) {
+            //已完成/已取消的订单不允许管理端取消
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
 
         //支付状态
         Integer payStatus = ordersDB.getPayStatus();
-        if (payStatus == 1) {
-            //用户已支付，需要退款
-            String refund = weChatPayUtil.refund(
+        if (payStatus == Orders.PAID) {
+            //用户已支付，需要退款;退款单号独立,金额取库内实际值
+            weChatPayUtil.refund(
                     ordersDB.getNumber(),
-                    ordersDB.getNumber(),
-                    new BigDecimal(0.01),
-                    new BigDecimal(0.01));
-            log.info("申请退款：{}", refund);
+                    "R" + ordersDB.getNumber(),
+                    ordersDB.getAmount(),
+                    ordersDB.getAmount());
+            log.info("refund requested for order {}", ordersDB.getNumber());
         }
 
-        // 管理端取消订单需要退款，根据订单id更新订单状态、取消原因、取消时间
+        // 乐观状态迁移:以读取时的状态为条件,并发变更抢先则取消失败
         Orders orders = new Orders();
         orders.setId(ordersCancelDTO.getId());
         orders.setStatus(Orders.CANCELLED);
         orders.setCancelReason(ordersCancelDTO.getCancelReason());
         orders.setCancelTime(LocalDateTime.now());
-        orderMapper.update(orders);
+        int rows = orderMapper.transitionStatus(orders, ordersDB.getStatus());
+        if (rows == 0) {
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
     }
 
     /**
@@ -646,10 +665,13 @@ public class OrderServiceImpl implements OrderService {
 
         Orders orders = new Orders();
         orders.setId(ordersDB.getId());
-        // 更新订单状态,状态转为派送中
+        // 乐观状态迁移:仅已接单(3)可转派送中
         orders.setStatus(Orders.DELIVERY_IN_PROGRESS);
 
-        orderMapper.update(orders);
+        int rows = orderMapper.transitionStatus(orders, Orders.CONFIRMED);
+        if (rows == 0) {
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
     }
 
     /**
@@ -668,11 +690,14 @@ public class OrderServiceImpl implements OrderService {
 
         Orders orders = new Orders();
         orders.setId(ordersDB.getId());
-        // 更新订单状态,状态转为完成
+        // 乐观状态迁移:仅派送中(4)可转完成
         orders.setStatus(Orders.COMPLETED);
         orders.setDeliveryTime(LocalDateTime.now());
 
-        orderMapper.update(orders);
+        int rows = orderMapper.transitionStatus(orders, Orders.DELIVERY_IN_PROGRESS);
+        if (rows == 0) {
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
     }
 
     /**

@@ -61,6 +61,13 @@ public interface OrderMapper {
                         @Param("cancelTime") LocalDateTime cancelTime);
 
     /**
+     * 乐观状态迁移:携带读取时观察到的状态作为条件,并发迁移只有一方成功。
+     * 影响行数为0说明状态已被其他操作(支付回调/取消/接单)抢先改变,
+     * 调用方应放弃本次操作并返回状态错误。所有订单状态变更的唯一入口。
+     */
+    int transitionStatus(@Param("o") Orders target, @Param("fromStatus") Integer fromStatus);
+
+    /**
      * 分页条件查询并按下单时间排序
      * @param ordersPageQueryDTO
      */

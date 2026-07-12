@@ -13,6 +13,19 @@
                 #{estimatedDeliveryTime}, #{deliveryStatus},#{packAmount}, #{tablewareNumber}, #{tablewareStatus})
     </insert>
 
+    <update id="transitionStatus">
+        update orders
+        <set>
+            status = #{o.status},
+            <if test="o.payStatus != null">pay_status = #{o.payStatus},</if>
+            <if test="o.cancelReason != null">cancel_reason = #{o.cancelReason},</if>
+            <if test="o.rejectionReason != null">rejection_reason = #{o.rejectionReason},</if>
+            <if test="o.cancelTime != null">cancel_time = #{o.cancelTime},</if>
+            <if test="o.deliveryTime != null">delivery_time = #{o.deliveryTime},</if>
+        </set>
+        where id = #{o.id} and status = #{fromStatus}
+    </update>
+
     <update id="update" parameterType="com.dinehub.entity.Orders">
         update orders
         <set>

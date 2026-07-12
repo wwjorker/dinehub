@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 
 // 极简运营台:登录、桌台与二维码、秒杀券发布、订单一览。
 // 面向演示的最小闭环,完整管理能力见接口文档 /doc.html
@@ -16,6 +16,9 @@ const coupons = ref([])
 const newCoupon = reactive({ title: '', discountAmount: 10, minAmount: 30, totalStock: 100, minutes: 60 })
 
 const orders = ref([])
+let orderSocket
+let reconnectTimer
+let socketClosing = false
 
 function toast(t) {
   msg.value = t
@@ -27,7 +30,12 @@ async function req(path, options = {}) {
     ...options,
     headers: { 'Content-Type': 'application/json', token: token.value, ...options.headers }
   })
-  if (res.status === 401) { token.value = ''; localStorage.removeItem('dinehub.ops.token'); throw new Error('登录过期') }
+  if (res.status === 401) {
+    token.value = ''
+    localStorage.removeItem('dinehub.ops.token')
+    closeOrderSocket()
+    throw new Error('登录过期')
+  }
   const body = await res.json()
   if (body.code !== 1) { toast(body.msg || '操作失败'); throw new Error(body.msg) }
   return body.data
@@ -39,13 +47,59 @@ async function doLogin() {
   })
   token.value = data.token
   localStorage.setItem('dinehub.ops.token', data.token)
-  refresh()
+  await refresh()
+  connectOrderSocket()
 }
 
 async function refresh() {
-  tables.value = (await req('/admin/table/page?page=1&pageSize=50')).records || []
-  coupons.value = (await req('/admin/coupon/page?page=1&pageSize=50')).records || []
+  const [tablePage, couponPage, orderPage] = await Promise.all([
+    req('/admin/table/page?page=1&pageSize=50'),
+    req('/admin/coupon/page?page=1&pageSize=50'),
+    req('/admin/order/conditionSearch?page=1&pageSize=15')
+  ])
+  tables.value = tablePage.records || []
+  coupons.value = couponPage.records || []
+  orders.value = orderPage.records || []
+}
+
+async function refreshOrders() {
   orders.value = (await req('/admin/order/conditionSearch?page=1&pageSize=15')).records || []
+}
+
+function closeOrderSocket() {
+  socketClosing = true
+  clearTimeout(reconnectTimer)
+  if (orderSocket) orderSocket.close()
+  orderSocket = undefined
+}
+
+async function connectOrderSocket() {
+  if (!token.value || (orderSocket && orderSocket.readyState <= WebSocket.OPEN)) return
+  socketClosing = false
+  try {
+    const ticket = await req('/admin/ws/ticket')
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    orderSocket = new WebSocket(`${protocol}//${location.host}/ws/order?ticket=${encodeURIComponent(ticket)}`)
+    orderSocket.onmessage = async (event) => {
+      try {
+        const notice = JSON.parse(event.data)
+        toast(notice.content || (notice.type === 1 ? '收到新订单' : '收到催单提醒'))
+        await refreshOrders()
+      } catch (_) {
+        toast('收到订单状态更新')
+      }
+    }
+    orderSocket.onclose = () => {
+      orderSocket = undefined
+      if (!socketClosing && token.value) {
+        reconnectTimer = setTimeout(connectOrderSocket, 3000)
+      }
+    }
+  } catch (_) {
+    if (!socketClosing && token.value) {
+      reconnectTimer = setTimeout(connectOrderSocket, 5000)
+    }
+  }
 }
 
 async function addTable() {
@@ -92,7 +146,15 @@ async function publish(c) {
 
 const orderStatus = { 1: '待付款', 2: '待接单', 3: '已接单', 4: '派送中', 5: '已完成', 6: '已取消' }
 
-onMounted(() => { if (token.value) refresh().catch(() => {}) })
+onMounted(async () => {
+  if (!token.value) return
+  try {
+    await refresh()
+    connectOrderSocket()
+  } catch (_) {}
+})
+
+onBeforeUnmount(closeOrderSocket)
 </script>
 
 <template>

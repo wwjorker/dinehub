@@ -1,72 +1,77 @@
 package com.dinehub.websocket;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import javax.websocket.OnClose;
-import javax.websocket.OnMessage;
-import javax.websocket.OnOpen;
-import javax.websocket.Session;
-import javax.websocket.server.PathParam;
-import javax.websocket.server.ServerEndpoint;
-import java.util.Collection;
-import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.web.socket.CloseStatus;
+import org.springframework.web.socket.TextMessage;
+import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.handler.TextWebSocketHandler;
+
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * WebSocket服务
+ * 已认证管理端的订单事件通道。
  */
 @Component
-@ServerEndpoint("/ws/{sid}")
-public class WebSocketServer {
+@Slf4j
+public class WebSocketServer extends TextWebSocketHandler {
 
-    //存放会话对象
-    //会话表被连接、断开、群发多线程并发访问,必须用并发容器
-    private static Map<String, Session> sessionMap = new ConcurrentHashMap<>();
+    public static final String EMPLOYEE_ID_ATTRIBUTE = "employeeId";
 
-    /**
-     * 连接建立成功调用的方法
-     */
-    @OnOpen
-    public void onOpen(Session session, @PathParam("sid") String sid) {
-        System.out.println("客户端：" + sid + "建立连接");
-        sessionMap.put(sid, session);
+    private final Map<Long, WebSocketSession> sessions = new ConcurrentHashMap<>();
+
+    @Override
+    public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+        Long employeeId = (Long) session.getAttributes().get(EMPLOYEE_ID_ATTRIBUTE);
+        if (employeeId == null) {
+            session.close(CloseStatus.NOT_ACCEPTABLE.withReason("missing authenticated identity"));
+            return;
+        }
+
+        WebSocketSession previous = sessions.put(employeeId, session);
+        if (previous != null && previous.isOpen() && previous != session) {
+            previous.close(CloseStatus.NORMAL.withReason("replaced by a newer connection"));
+        }
+        log.info("admin order channel connected, employeeId={}", employeeId);
     }
 
-    /**
-     * 收到客户端消息后调用的方法
-     *
-     * @param message 客户端发送过来的消息
-     */
-    @OnMessage
-    public void onMessage(String message, @PathParam("sid") String sid) {
-        System.out.println("收到来自客户端：" + sid + "的信息:" + message);
-    }
-
-    /**
-     * 连接关闭调用的方法
-     *
-     * @param sid
-     */
-    @OnClose
-    public void onClose(@PathParam("sid") String sid) {
-        System.out.println("连接断开:" + sid);
-        sessionMap.remove(sid);
-    }
-
-    /**
-     * 群发
-     *
-     * @param message
-     */
-    public void sendToAllClient(String message) {
-        Collection<Session> sessions = sessionMap.values();
-        for (Session session : sessions) {
-            try {
-                //服务器向客户端发送消息
-                session.getBasicRemote().sendText(message);
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
+    @Override
+    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
+        Long employeeId = (Long) session.getAttributes().get(EMPLOYEE_ID_ATTRIBUTE);
+        if (employeeId != null) {
+            sessions.remove(employeeId, session);
+            log.info("admin order channel disconnected, employeeId={}", employeeId);
         }
     }
 
+    @Override
+    public void handleTransportError(WebSocketSession session, Throwable exception) throws Exception {
+        log.warn("admin order channel transport error, session={}", session.getId(), exception);
+        if (session.isOpen()) {
+            session.close(CloseStatus.SERVER_ERROR);
+        }
+    }
+
+    /**
+     * 订单事件只广播给通过一次性 ticket 建立的管理端连接。
+     */
+    public void sendToAllClient(String message) {
+        TextMessage textMessage = new TextMessage(message);
+        sessions.forEach((employeeId, session) -> {
+            if (!session.isOpen()) {
+                sessions.remove(employeeId, session);
+                return;
+            }
+            try {
+                // StandardWebSocketSession 不保证并发 sendMessage 安全。
+                synchronized (session) {
+                    session.sendMessage(textMessage);
+                }
+            } catch (Exception e) {
+                sessions.remove(employeeId, session);
+                log.warn("failed to push order event, employeeId={}", employeeId, e);
+            }
+        });
+    }
 }

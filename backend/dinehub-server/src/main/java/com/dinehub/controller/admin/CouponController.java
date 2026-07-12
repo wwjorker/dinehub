@@ -49,4 +49,12 @@ public class CouponController {
         couponService.publish(id);
         return Result.success();
     }
+
+    @PostMapping("/{id}/rebuild-cache")
+    @ApiOperation("重建秒杀缓存(预热失败/Redis重启后的恢复入口,幂等)")
+    public Result rebuildCache(@PathVariable Long id) {
+        log.info("重建秒杀缓存:{}", id);
+        couponService.rebuildSeckillCache(id);
+        return Result.success();
+    }
 }

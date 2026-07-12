@@ -44,4 +44,9 @@ public interface CouponService {
      * C端可见的进行中/未开始秒杀券
      */
     List<Coupon> listActiveSeckill();
+
+    /**
+     * 幂等重建秒杀Redis账本(预热失败/Redis重启后的恢复入口)
+     */
+    void rebuildSeckillCache(Long id);
 }

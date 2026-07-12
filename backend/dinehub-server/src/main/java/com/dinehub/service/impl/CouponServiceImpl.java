@@ -121,23 +121,47 @@ public class CouponServiceImpl implements CouponService {
         }
         //预热:把DB剩余库存装载进Redis,作为抢购期间的资格账本
         if (Coupon.TYPE_SECKILL.equals(coupon.getType())) {
-            String stockKey = STOCK_KEY_PREFIX + id;
-            String boughtKey = BOUGHT_KEY_PREFIX + id;
-            stringRedisTemplate.opsForValue().set(stockKey, String.valueOf(coupon.getRemainingStock()));
-            //防重集合以DB持券记录为准重建,Redis数据丢失后重新发布也不会破坏一人一单
-            stringRedisTemplate.delete(boughtKey);
-            List<Long> holders = userCouponMapper.listUserIdsByCouponId(id);
-            if (!holders.isEmpty()) {
-                String[] members = holders.stream().map(String::valueOf).toArray(String[]::new);
-                stringRedisTemplate.opsForSet().add(boughtKey, members);
-            }
-            Duration ttl = Duration.between(LocalDateTime.now(), coupon.getSeckillEndTime()).plus(KEY_TTL_MARGIN);
-            if (!ttl.isNegative()) {
-                stringRedisTemplate.expire(stockKey, ttl);
-                stringRedisTemplate.expire(boughtKey, ttl);
-            }
+            preheat(coupon);
         }
         log.info("coupon {} published, stock preheated: {}", id, coupon.getRemainingStock());
+    }
+
+    /**
+     * 重建秒杀缓存:幂等,可反复调用。发布后Redis预热失败、或Redis重启丢数据时,
+     * 用DB的剩余库存与持券记录完整重建资格账本与防重集合。
+     */
+    public void rebuildSeckillCache(Long id) {
+        Coupon coupon = couponMapper.getById(id);
+        if (coupon == null || !Coupon.TYPE_SECKILL.equals(coupon.getType())) {
+            throw new SeckillBusinessException(MessageConstant.COUPON_NOT_FOUND);
+        }
+        if (!Coupon.STATUS_PUBLISHED.equals(coupon.getStatus())) {
+            throw new SeckillBusinessException(MessageConstant.COUPON_NOT_PUBLISHED);
+        }
+        preheat(coupon);
+        log.info("seckill cache rebuilt for coupon {}: stock {}", id, coupon.getRemainingStock());
+    }
+
+    /**
+     * 以DB为准装载Redis账本:库存=remaining_stock,防重集合=已持券用户,TTL对齐活动周期
+     */
+    private void preheat(Coupon coupon) {
+        Long id = coupon.getId();
+        String stockKey = STOCK_KEY_PREFIX + id;
+        String boughtKey = BOUGHT_KEY_PREFIX + id;
+        stringRedisTemplate.opsForValue().set(stockKey, String.valueOf(coupon.getRemainingStock()));
+        //防重集合以DB持券记录为准重建,Redis数据丢失后重建也不会破坏一人一单
+        stringRedisTemplate.delete(boughtKey);
+        List<Long> holders = userCouponMapper.listUserIdsByCouponId(id);
+        if (!holders.isEmpty()) {
+            String[] members = holders.stream().map(String::valueOf).toArray(String[]::new);
+            stringRedisTemplate.opsForSet().add(boughtKey, members);
+        }
+        Duration ttl = Duration.between(LocalDateTime.now(), coupon.getSeckillEndTime()).plus(KEY_TTL_MARGIN);
+        if (!ttl.isNegative()) {
+            stringRedisTemplate.expire(stockKey, ttl);
+            stringRedisTemplate.expire(boughtKey, ttl);
+        }
     }
 
     public void seckill(Long couponId, Long userId) {

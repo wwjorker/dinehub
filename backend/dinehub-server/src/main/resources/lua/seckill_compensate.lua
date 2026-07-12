@@ -8,6 +8,10 @@ local ok = redis.call('set', KEYS[1], '1', 'NX', 'EX', tonumber(ARGV[2]))
 if not ok then
     return 0
 end
-redis.call('incr', KEYS[2])
+-- only refund into a live stock counter: if the key already expired the
+-- campaign is over and INCR would resurrect a permanent orphan key
+if redis.call('exists', KEYS[2]) == 1 then
+    redis.call('incr', KEYS[2])
+end
 redis.call('srem', KEYS[3], ARGV[1])
 return 1

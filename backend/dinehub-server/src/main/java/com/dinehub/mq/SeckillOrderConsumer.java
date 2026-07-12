@@ -44,8 +44,10 @@ public class SeckillOrderConsumer {
         }
         int rows = couponMapper.deductStock(message.getCouponId());
         if (rows == 0) {
-            //Redis资格账本与DB最终账本不符,记录待对账;不应回滚用户已到手的券
-            log.error("stock ledger mismatch on coupon {}, requestId {}", message.getCouponId(), message.getRequestId());
+            //DB库存扣不动说明账本漂移:整个事务(含已插入的券)回滚,
+            //经重试进入死信后原子回补Redis名额,保持两侧账本守恒
+            throw new IllegalStateException("db stock exhausted for coupon " + message.getCouponId()
+                    + ", requestId " + message.getRequestId());
         }
     }
 }

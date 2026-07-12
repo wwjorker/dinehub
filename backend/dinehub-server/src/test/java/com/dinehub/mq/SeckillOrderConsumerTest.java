@@ -57,4 +57,12 @@ class SeckillOrderConsumerTest {
 
         assertThrows(RuntimeException.class, () -> consumer.onMessage(message()));
     }
+
+    @Test
+    void exhaustedDbStockRollsBackTheGrant() {
+        //DB账本扣不动时必须整体回滚(券也不能留),经重试进入死信后回补名额
+        when(couponMapper.deductStock(10L)).thenReturn(0);
+
+        assertThrows(IllegalStateException.class, () -> consumer.onMessage(message()));
+    }
 }

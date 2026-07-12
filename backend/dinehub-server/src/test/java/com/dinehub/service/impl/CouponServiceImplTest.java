@@ -179,6 +179,28 @@ class CouponServiceImplTest {
     }
 
     @Test
+    void rebuildCacheRequiresPublishedCoupon() {
+        Coupon draft = publishedCoupon();
+        draft.setStatus(Coupon.STATUS_DRAFT);
+        when(couponMapper.getById(10L)).thenReturn(draft);
+
+        assertThrows(SeckillBusinessException.class, () -> couponService.rebuildSeckillCache(10L));
+    }
+
+    @Test
+    void rebuildCacheReloadsLedgerFromDb() {
+        ValueOperations<String, String> valueOps = mock(ValueOperations.class);
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
+        when(couponMapper.getById(10L)).thenReturn(publishedCoupon());
+        when(userCouponMapper.listUserIdsByCouponId(10L)).thenReturn(Collections.emptyList());
+
+        couponService.rebuildSeckillCache(10L);
+
+        verify(valueOps).set(eq(CouponServiceImpl.STOCK_KEY_PREFIX + 10L), eq("100"));
+        verify(couponMapper, never()).publishIfDraft(10L);
+    }
+
+    @Test
     void republishIsRejectedAndDoesNotResetLedger() {
         //重复发布会清空防重集合,让已领用户重复通过Lua;条件更新必须挡住它
         when(couponMapper.getById(10L)).thenReturn(publishedCoupon());

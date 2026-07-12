@@ -127,8 +127,10 @@ public class CouponServiceImpl implements CouponService {
     }
 
     /**
-     * 重建秒杀缓存:幂等,可反复调用。发布后Redis预热失败、或Redis重启丢数据时,
-     * 用DB的剩余库存与持券记录完整重建资格账本与防重集合。
+     * 重建秒杀缓存:幂等,可反复调用,用DB的剩余库存与持券记录重建资格账本与防重集合。
+     * 边界:以DB为准,尚未落库的在途异步准入不在账本内——活动进行且队列有积压时重建
+     * 会放大库存并漏掉在途用户,因此仅应在无在途请求时使用(活动未开始、已结束或
+     * 队列确认排空);活动中的安全重建需要可靠消息账本(seckill_request)支持。
      */
     public void rebuildSeckillCache(Long id) {
         Coupon coupon = couponMapper.getById(id);

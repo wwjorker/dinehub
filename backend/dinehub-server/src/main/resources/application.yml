@@ -1,9 +1,10 @@
 server:
   port: 8080
 
+# No default profile on purpose: startup fails fast without an explicit
+# SPRING_PROFILES_ACTIVE (dev locally, prod in production) instead of
+# silently running on development credentials.
 spring:
-  profiles:
-    active: dev
   main:
     allow-circular-references: true
   datasource:

@@ -68,6 +68,24 @@ public interface OrderMapper {
     int transitionStatus(@Param("o") Orders target, @Param("fromStatus") Integer fromStatus);
 
     /**
+     * 退款确认:仅退款中(3)可转已退款(2),幂等
+     */
+    @Update("update orders set pay_status = 2 where id = #{id} and pay_status = 3")
+    int markRefunded(Long id);
+
+    /**
+     * 迟到支付:订单已取消后钱才到账,标记为退款中转入退款流程
+     */
+    @Update("update orders set pay_status = 3 where id = #{id} and status = 6 and pay_status <> 2")
+    int markRefundPendingIfCancelled(Long id);
+
+    /**
+     * 待重试退款的订单(退款调用失败或结果未知时停留在退款中)
+     */
+    @Select("select * from orders where pay_status = 3 limit 50")
+    List<Orders> listRefundPending();
+
+    /**
      * 分页条件查询并按下单时间排序
      * @param ordersPageQueryDTO
      */

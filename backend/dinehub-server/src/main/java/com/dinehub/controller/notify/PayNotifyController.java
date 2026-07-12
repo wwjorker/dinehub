@@ -5,6 +5,7 @@ import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.dinehub.properties.WeChatProperties;
 import com.dinehub.service.OrderService;
+import com.dinehub.service.OrderService.PayCallbackResult;
 import com.wechat.pay.contrib.apache.httpclient.util.AesUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.entity.ContentType;
@@ -60,11 +61,15 @@ public class PayNotifyController {
 
         log.info("pay callback for order {}, transaction {}", outTradeNo, transactionId);
 
-        //业务处理，修改订单状态、来单提醒
-        orderService.paySuccess(outTradeNo, payerTotal);
+        //业务处理，修改订单状态、来单提醒;拒绝时不得向微信确认消费
+        OrderService.PayCallbackResult result = orderService.paySuccess(outTradeNo, payerTotal);
+        if (result == OrderService.PayCallbackResult.REJECTED) {
+            responseToWeixin(response, 500, "FAIL", "business validation failed");
+            return;
+        }
 
         //给微信响应
-        responseToWeixin(response);
+        responseToWeixin(response, 200, "SUCCESS", "SUCCESS");
     }
 
     /**
@@ -114,11 +119,11 @@ public class PayNotifyController {
      * 给微信响应
      * @param response
      */
-    private void responseToWeixin(HttpServletResponse response) throws Exception{
-        response.setStatus(200);
+    private void responseToWeixin(HttpServletResponse response, int status, String code, String message) throws Exception{
+        response.setStatus(status);
         HashMap<Object, Object> map = new HashMap<>();
-        map.put("code", "SUCCESS");
-        map.put("message", "SUCCESS");
+        map.put("code", code);
+        map.put("message", message);
         response.setHeader("Content-type", ContentType.APPLICATION_JSON.toString());
         response.getOutputStream().write(JSONUtils.toJSONString(map).getBytes(StandardCharsets.UTF_8));
         response.flushBuffer();

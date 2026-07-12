@@ -24,6 +24,8 @@ public class OrderTask {
 
     @Autowired
     private OrderMapper orderMapper;
+    @Autowired
+    private com.dinehub.service.OrderService orderService;
 
     @Value("${dinehub.order.pay-timeout-millis:900000}")
     private long payTimeoutMillis;
@@ -44,6 +46,15 @@ public class OrderTask {
             //条件更新保证与MQ取消/支付回调之间幂等
             orderMapper.cancelIfPending(orders.getId(), OrderTimeoutConsumer.CANCEL_REASON, LocalDateTime.now());
         }
+    }
+
+    /**
+     * 重试停留在退款中的订单:退款调用失败或结果未知时的兜底,
+     * 固定退款单号保证重复调用幂等
+     */
+    @Scheduled(cron = "${dinehub.order.refund-retry-cron:30 0/10 * * * ?}")
+    public void retryPendingRefunds() {
+        orderService.retryPendingRefunds();
     }
 
     /**

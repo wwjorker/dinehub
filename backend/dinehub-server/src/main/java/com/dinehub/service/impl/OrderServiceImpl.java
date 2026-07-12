@@ -61,6 +61,8 @@ public class OrderServiceImpl implements OrderService {
     @Autowired
     private WeChatPayUtil weChatPayUtil;
     @Autowired
+    private com.dinehub.properties.WeChatProperties weChatProperties;
+    @Autowired
     private WebSocketServer webSocketServer;
     @Autowired
     private RabbitTemplate rabbitTemplate;
@@ -302,28 +304,39 @@ public class OrderServiceImpl implements OrderService {
      *
      * @param outTradeNo
      */
-    public void paySuccess(String outTradeNo, Integer payerTotalFen) {
+    public PayCallbackResult paySuccess(String outTradeNo, Integer payerTotalFen) {
         //回调线程没有用户上下文,按订单号定位
         Orders ordersDB = orderMapper.getByNumber(outTradeNo);
         if (ordersDB == null) {
-            log.error("pay callback for unknown order {}", outTradeNo);
-            return;
+            log.error("pay callback for unknown order {}, rejected", outTradeNo);
+            return PayCallbackResult.REJECTED;
         }
 
-        //实付金额必须与订单金额一致,否则拒绝入账并告警(金额单位:分)
+        //实付金额必须与订单金额一致,否则拒绝确认并告警(金额单位:分)
         int expectedFen = ordersDB.getAmount().movePointRight(2).intValueExact();
         if (payerTotalFen == null || payerTotalFen != expectedFen) {
             log.error("pay callback amount mismatch for order {}: paid {} expected {}, rejected",
                     outTradeNo, payerTotalFen, expectedFen);
-            return;
+            return PayCallbackResult.REJECTED;
         }
 
         //状态机条件更新:订单已被超时取消时影响0行,迟到的回调不允许把已取消订单改回待接单
         int rows = orderMapper.markPaidIfPending(ordersDB.getId(), LocalDateTime.now());
         if (rows == 0) {
-            log.error("pay callback for order {} in status {}, needs manual refund handling",
+            //重复回调:订单已是已支付,幂等确认
+            if (Orders.PAID.equals(ordersDB.getPayStatus())) {
+                return PayCallbackResult.CONFIRMED;
+            }
+            //迟到支付:订单已取消而钱到账了——确认收款并立即转入退款流程
+            int marked = orderMapper.markRefundPendingIfCancelled(ordersDB.getId());
+            if (marked > 0) {
+                log.error("late payment on cancelled order {}, refund initiated", outTradeNo);
+                executeRefund(ordersDB);
+                return PayCallbackResult.LATE_REFUNDED;
+            }
+            log.error("pay callback for order {} in unexpected status {}, rejected",
                     outTradeNo, ordersDB.getStatus());
-            return;
+            return PayCallbackResult.REJECTED;
         }
 
         //通过websocket向客户端浏览器推送消息 type orderId content
@@ -334,6 +347,40 @@ public class OrderServiceImpl implements OrderService {
 
         String json = JSON.toJSONString(map);
         webSocketServer.sendToAllClient(json);
+        return PayCallbackResult.CONFIRMED;
+    }
+
+    /**
+     * 执行退款:调用方必须已通过状态迁移取得退款权(pay_status=退款中)。
+     * 未配置商户密钥的演示环境直接视为退款完成;真实调用失败则保留退款中,
+     * 由低频兜底扫描以同一退款单号幂等重试。
+     */
+    public void executeRefund(Orders order) {
+        try {
+            if (weChatProperties.getApiV3Key() == null || weChatProperties.getApiV3Key().isEmpty()) {
+                //演示环境无真实商户,直接完成退款闭环
+                orderMapper.markRefunded(order.getId());
+                return;
+            }
+            weChatPayUtil.refund(
+                    order.getNumber(),
+                    "R" + order.getNumber(), //固定退款单号,重试幂等
+                    order.getAmount(),
+                    order.getAmount());
+            orderMapper.markRefunded(order.getId());
+        } catch (Exception e) {
+            log.error("refund failed for order {}, kept pending for retry", order.getNumber(), e);
+        }
+    }
+
+    /**
+     * 重试停留在退款中的订单(兜底扫描调用)
+     */
+    public void retryPendingRefunds() {
+        List<Orders> pending = orderMapper.listRefundPending();
+        for (Orders order : pending) {
+            executeRefund(order);
+        }
     }
 
     /**
@@ -425,26 +472,21 @@ public class OrderServiceImpl implements OrderService {
         Orders orders = new Orders();
         orders.setId(ordersDB.getId());
 
-        // 订单处于待接单状态下取消，需要进行退款
-        if (ordersDB.getStatus().equals(Orders.TO_BE_CONFIRMED)) {
-            //调用微信支付退款接口;退款单号独立于订单号,金额取库内实际值
-            weChatPayUtil.refund(
-                    ordersDB.getNumber(), //商户订单号
-                    "R" + ordersDB.getNumber(), //商户退款单号(唯一退款请求)
-                    ordersDB.getAmount(),//退款金额，单位 元
-                    ordersDB.getAmount());//原订单金额
-
-            //支付状态修改为 退款
-            orders.setPayStatus(Orders.REFUND);
+        //先抢状态再退款:已支付订单标记退款中,取得退款权后才允许动钱,
+        //并发接单抢先时本次取消失败且绝不会发生退款
+        boolean needRefund = Orders.PAID.equals(ordersDB.getPayStatus());
+        if (needRefund) {
+            orders.setPayStatus(Orders.REFUND_PENDING);
         }
-
-        // 乐观状态迁移:以读取时的状态为条件,支付回调等并发操作抢先则本次取消失败
         orders.setStatus(Orders.CANCELLED);
         orders.setCancelReason("用户取消");
         orders.setCancelTime(LocalDateTime.now());
         int rows = orderMapper.transitionStatus(orders, ordersDB.getStatus());
         if (rows == 0) {
             throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
+        if (needRefund) {
+            executeRefund(ordersDB);
         }
     }
 
@@ -587,28 +629,23 @@ public class OrderServiceImpl implements OrderService {
             throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
         }
 
-        //支付状态
-        Integer payStatus = ordersDB.getPayStatus();
-        if (payStatus == Orders.PAID) {
-            //用户已支付，需要退款;退款单号独立,金额取库内实际值
-            weChatPayUtil.refund(
-                    ordersDB.getNumber(),
-                    "R" + ordersDB.getNumber(),
-                    ordersDB.getAmount(),
-                    ordersDB.getAmount());
-            log.info("refund requested for order {}", ordersDB.getNumber());
-        }
-
-        // 乐观状态迁移:仅待接单可拒单
+        //先抢状态再退款:并发操作抢先则拒单失败且不会退款
+        boolean needRefund = Orders.PAID.equals(ordersDB.getPayStatus());
         Orders orders = new Orders();
         orders.setId(ordersDB.getId());
         orders.setStatus(Orders.CANCELLED);
         orders.setRejectionReason(ordersRejectionDTO.getRejectionReason());
         orders.setCancelTime(LocalDateTime.now());
+        if (needRefund) {
+            orders.setPayStatus(Orders.REFUND_PENDING);
+        }
 
         int rows = orderMapper.transitionStatus(orders, Orders.TO_BE_CONFIRMED);
         if (rows == 0) {
             throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
+        if (needRefund) {
+            executeRefund(ordersDB);
         }
     }
 
@@ -625,27 +662,22 @@ public class OrderServiceImpl implements OrderService {
             throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
         }
 
-        //支付状态
-        Integer payStatus = ordersDB.getPayStatus();
-        if (payStatus == Orders.PAID) {
-            //用户已支付，需要退款;退款单号独立,金额取库内实际值
-            weChatPayUtil.refund(
-                    ordersDB.getNumber(),
-                    "R" + ordersDB.getNumber(),
-                    ordersDB.getAmount(),
-                    ordersDB.getAmount());
-            log.info("refund requested for order {}", ordersDB.getNumber());
-        }
-
-        // 乐观状态迁移:以读取时的状态为条件,并发变更抢先则取消失败
+        //先抢状态再退款:并发变更抢先则取消失败且不会退款
+        boolean needRefund = Orders.PAID.equals(ordersDB.getPayStatus());
         Orders orders = new Orders();
         orders.setId(ordersCancelDTO.getId());
         orders.setStatus(Orders.CANCELLED);
         orders.setCancelReason(ordersCancelDTO.getCancelReason());
         orders.setCancelTime(LocalDateTime.now());
+        if (needRefund) {
+            orders.setPayStatus(Orders.REFUND_PENDING);
+        }
         int rows = orderMapper.transitionStatus(orders, ordersDB.getStatus());
         if (rows == 0) {
             throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
+        if (needRefund) {
+            executeRefund(ordersDB);
         }
     }
 

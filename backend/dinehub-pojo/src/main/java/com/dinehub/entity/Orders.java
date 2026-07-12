@@ -40,6 +40,8 @@ public class Orders implements Serializable {
     public static final Integer UN_PAID = 0;
     public static final Integer PAID = 1;
     public static final Integer REFUND = 2;
+    //已取得退款权但退款尚未确认完成,由兜底扫描重试
+    public static final Integer REFUND_PENDING = 3;
 
     private static final long serialVersionUID = 1L;
 

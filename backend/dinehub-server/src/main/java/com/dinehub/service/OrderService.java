@@ -26,7 +26,18 @@ public interface OrderService {
      * 支付成功，修改订单状态
      * @param outTradeNo
      */
-    void paySuccess(String outTradeNo, Integer payerTotalFen);
+    /**
+     * 支付回调处理结果,决定给微信的应答:
+     * CONFIRMED/LATE_REFUNDED 确认消费;REJECTED 拒绝,等待微信重发并人工介入
+     */
+    enum PayCallbackResult { CONFIRMED, LATE_REFUNDED, REJECTED }
+
+    PayCallbackResult paySuccess(String outTradeNo, Integer payerTotalFen);
+
+    /**
+     * 重试停留在退款中的订单(兜底扫描调用)
+     */
+    void retryPendingRefunds();
 
     /**
      * 用户端订单分页查询

@@ -15,7 +15,7 @@ DineHub 是一个面向单店/小连锁餐饮商家的一体化经营平台后�
 - **订单超时取消**:TTL+死信实现延迟消息,消费者做状态条件更新(与支付回调竞态安全);原轮询任务降级为低频兜底扫描,双保险。
 - **缓存一致性**:菜品缓存延迟双删,覆盖"删除后读请求回填旧值"的窗口。
 - **接口限流**:注解式令牌桶(惰性补充,无后台线程),挂在秒杀入口,支持全局开关。
-- **安全与状态机**:用户侧订单/地址全部归属校验(防横向越权);订单金额服务端按购物车快照重算,支付金额取库内订单值;支付回调与超时取消均为状态条件更新,双向竞态安全;请求级认证上下文自动清理。
+- **安全与状态机**:用户侧订单/地址全部归属校验(防横向越权);订单金额与打包费全部服务端计算,支付金额取库内订单值,回调实付金额核对不符即拒绝确认;接单/拒单/派送/完成/取消/支付全部为乐观状态迁移(以读取时状态为条件,并发只有一方成功);退款仅在赢得取消迁移后执行,金额取库内值、退款单号独立且固定,失败停留"退款中"由兜底扫描幂等重试;迟到支付自动转入退款流程;员工密码 BCrypt 存储(历史 MD5 账户登录时平滑升级);请求级认证上下文自动清理。
 - **基建**:Flyway 全量 schema 管理、Docker Compose 一键中间件、GitHub Actions CI(含 Testcontainers 真 Redis 的 Lua 并发无超卖测试)。
 
 ## 性能压测
@@ -87,8 +87,10 @@ dinehub
 docker compose up -d          # MySQL(3306)/Redis(6379)/RabbitMQ(5672,管理台15672)
 cd backend
 ./mvnw clean package
-java -jar dinehub-server/target/dinehub-server-1.0-SNAPSHOT.jar
+SPRING_PROFILES_ACTIVE=dev java -jar dinehub-server/target/dinehub-server-1.0-SNAPSHOT.jar
 ```
+
+profile 必须显式指定,没有默认值:本地/演示用 `dev`;生产用 `prod`——prod 不含任何密钥默认值,缺少 `DINEHUB_JWT_ADMIN_SECRET` 等环境变量时启动直接失败,而不是悄悄退回公开的开发密钥。
 
 首次启动由 Flyway 自动建表并写入开发种子数据。入口:点单 H5 `http://localhost:8080/h5/`、运营台 `http://localhost:8080/h5/ops.html`、接口文档 `http://localhost:8080/doc.html`(演示账号 admin/123456)。演示动线:运营台建桌台 → 查看二维码 → 手机扫码(同一局域网,二维码地址可用 `DINEHUB_H5_BASE_URL` 指到本机 IP)→ 点单下单;运营台创建并发布秒杀券 → H5 秒杀页抢券。H5 构建产物已入库;改前端后在 `frontend/h5` 内 `npm install && npm run build` 重新生成。C 端登录为昵称直登的演示模式(`dinehub.demo-login.enabled` 可关闭),正式环境应接入微信授权。宿主端口冲突时可用 `DINEHUB_DB_PORT` 等变量覆盖(见 `docker-compose.yml` 与 `application-dev.yml`);所有敏感配置(数据库口令、OSS/微信支付密钥)一律环境变量注入,仓库不含任何真实凭据。
 

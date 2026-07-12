@@ -56,6 +56,8 @@ class OrderServiceImplTest {
     private ShoppingCartMapper shoppingCartMapper;
     @Mock
     private RabbitTemplate rabbitTemplate;
+    @Mock
+    private com.dinehub.properties.WeChatProperties weChatProperties;
 
     @InjectMocks
     private OrderServiceImpl orderService;
@@ -181,6 +183,58 @@ class OrderServiceImplTest {
         dto.setAddressBookId(99L);
 
         assertThrows(AddressBookBusinessException.class, () -> orderService.submitOrder(dto));
+    }
+
+    @Test
+    void refundOnlyHappensAfterWinningTheCancelTransition() throws Exception {
+        //已支付待接单订单,用户取消:必须先赢得状态迁移才允许退款
+        Orders paid = Orders.builder().id(9L).userId(USER_ID).number("N9")
+                .status(Orders.TO_BE_CONFIRMED).payStatus(Orders.PAID)
+                .amount(new BigDecimal("36.00")).build();
+        when(orderMapper.getById(9L)).thenReturn(paid);
+        when(orderMapper.transitionStatus(any(), org.mockito.ArgumentMatchers.eq(Orders.TO_BE_CONFIRMED))).thenReturn(1);
+
+        orderService.userCancelById(9L);
+
+        //演示环境(无商户配置)退款闭环 = 标记已退款
+        verify(orderMapper).markRefunded(9L);
+    }
+
+    @Test
+    void losingTheCancelRaceNeverRefunds() {
+        //并发接单抢先:迁移0行,取消失败,绝不发生退款
+        Orders paid = Orders.builder().id(9L).userId(USER_ID).number("N9")
+                .status(Orders.TO_BE_CONFIRMED).payStatus(Orders.PAID)
+                .amount(new BigDecimal("36.00")).build();
+        when(orderMapper.getById(9L)).thenReturn(paid);
+        when(orderMapper.transitionStatus(any(), org.mockito.ArgumentMatchers.eq(Orders.TO_BE_CONFIRMED))).thenReturn(0);
+
+        assertThrows(OrderBusinessException.class, () -> orderService.userCancelById(9L));
+        verify(orderMapper, never()).markRefunded(anyLong());
+    }
+
+    @Test
+    void payCallbackRejectsAmountMismatch() {
+        Orders order = Orders.builder().id(9L).number("N9").status(Orders.PENDING_PAYMENT)
+                .payStatus(Orders.UN_PAID).amount(new BigDecimal("36.00")).build();
+        when(orderMapper.getByNumber("N9")).thenReturn(order);
+
+        assertEquals(com.dinehub.service.OrderService.PayCallbackResult.REJECTED,
+                orderService.paySuccess("N9", 100));
+        verify(orderMapper, never()).markPaidIfPending(anyLong(), any());
+    }
+
+    @Test
+    void latePaymentOnCancelledOrderTriggersRefund() {
+        Orders cancelled = Orders.builder().id(9L).number("N9").status(Orders.CANCELLED)
+                .payStatus(Orders.UN_PAID).amount(new BigDecimal("36.00")).build();
+        when(orderMapper.getByNumber("N9")).thenReturn(cancelled);
+        when(orderMapper.markPaidIfPending(anyLong(), any())).thenReturn(0);
+        when(orderMapper.markRefundPendingIfCancelled(9L)).thenReturn(1);
+
+        assertEquals(com.dinehub.service.OrderService.PayCallbackResult.LATE_REFUNDED,
+                orderService.paySuccess("N9", 3600));
+        verify(orderMapper).markRefunded(9L);
     }
 
     @Test

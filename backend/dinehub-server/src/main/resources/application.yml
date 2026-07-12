@@ -7,6 +7,9 @@ server:
 spring:
   main:
     allow-circular-references: true
+  mvc:
+    pathmatch:
+      matching-strategy: ant_path_matcher
   datasource:
     druid:
       driver-class-name: ${dinehub.datasource.driver-class-name}

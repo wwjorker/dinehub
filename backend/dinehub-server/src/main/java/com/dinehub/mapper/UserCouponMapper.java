@@ -31,4 +31,7 @@ public interface UserCouponMapper {
 
     @Select("select count(1) from user_coupon where user_id = #{userId} and coupon_id = #{couponId}")
     int countByUserAndCoupon(@Param("userId") Long userId, @Param("couponId") Long couponId);
+
+    @Select("select count(1) from user_coupon where coupon_id = #{couponId}")
+    int countByCouponId(Long couponId);
 }

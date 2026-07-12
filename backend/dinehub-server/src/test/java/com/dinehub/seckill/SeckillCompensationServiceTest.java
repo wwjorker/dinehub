@@ -3,6 +3,8 @@ package com.dinehub.seckill;
 import com.dinehub.mq.SeckillMessage;
 import com.dinehub.seckill.SeckillTerminalService.CompensationClaim;
 import com.dinehub.seckill.SeckillTerminalService.SettlementOutcome;
+import com.dinehub.seckill.SeckillRedisLedger.CompensationOutcome;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -26,6 +28,8 @@ class SeckillCompensationServiceTest {
     private SeckillTerminalService terminalService;
     @Mock
     private SeckillRedisLedger ledger;
+    @Mock
+    private SeckillMetrics metrics;
     @InjectMocks
     private SeckillCompensationService service;
 
@@ -33,11 +37,17 @@ class SeckillCompensationServiceTest {
         return SeckillMessage.builder().requestId("request-1").couponId(10L).userId(20L).build();
     }
 
+    @BeforeEach
+    void allowTerminalTransition() {
+        when(ledger.beginTerminalTransition(10L)).thenReturn(true);
+    }
+
     @Test
     void compensationRunsClaimThenRedisThenTerminalCompletion() {
         when(terminalService.claimCompensation(message(), "failed"))
                 .thenReturn(new CompensationClaim(SettlementOutcome.COMPENSATING, false));
-        when(ledger.compensate(eq(message()), eq(false), any(Duration.class))).thenReturn(true);
+        when(ledger.compensate(eq(message()), eq(false), any(Duration.class)))
+                .thenReturn(CompensationOutcome.APPLIED);
 
         assertEquals(SettlementOutcome.COMPENSATED, service.compensate(message(), "failed"));
 

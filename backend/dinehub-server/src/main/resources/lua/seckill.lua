@@ -1,7 +1,10 @@
 -- Atomic admission plus a recoverable delivery ledger.
--- KEYS: stock, bought users, request hash, active request zset
+-- KEYS: stock, bought users, request hash, active request zset, rebuild lock
 -- ARGV: userId, couponId, requestId, nowMillis, ttlSeconds
 -- returns 0 granted, 1 sold out, 2 duplicate user
+if redis.call('exists', KEYS[5]) == 1 then
+    return 3
+end
 local stock = tonumber(redis.call('get', KEYS[1]))
 if stock == nil or stock <= 0 then
     return 1

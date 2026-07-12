@@ -20,4 +20,7 @@ public interface SeckillRequestMapper {
     @Update("update seckill_request set status = 3, last_error = #{lastError}, update_time = now()" +
             " where request_id = #{requestId} and status = 2")
     int markCompensated(@Param("requestId") String requestId, @Param("lastError") String lastError);
+
+    @Select("select count(1) from seckill_request where coupon_id = #{couponId} and status = #{status}")
+    int countByCouponAndStatus(@Param("couponId") Long couponId, @Param("status") Integer status);
 }

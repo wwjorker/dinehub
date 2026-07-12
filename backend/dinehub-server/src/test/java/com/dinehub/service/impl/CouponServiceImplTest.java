@@ -19,6 +19,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.SetOperations;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -199,11 +200,36 @@ class CouponServiceImplTest {
         when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
         when(couponMapper.getById(10L)).thenReturn(publishedCoupon());
         when(userCouponMapper.listUserIdsByCouponId(10L)).thenReturn(Collections.emptyList());
+        when(seckillRedisLedger.acquireRebuildLock(eq(10L), any(Duration.class))).thenReturn("lock");
+        when(seckillRedisLedger.awaitTerminalQuiescence(eq(10L), any(Duration.class))).thenReturn(true);
+        when(seckillRedisLedger.allActiveRequestIds(10L)).thenReturn(Collections.emptySet());
 
         couponService.rebuildSeckillCache(10L);
 
         verify(valueOps).set(eq(CouponServiceImpl.STOCK_KEY_PREFIX + 10L), eq("100"));
         verify(couponMapper, never()).publishIfDraft(10L);
+    }
+
+    @Test
+    void rebuildSubtractsActiveReservationAndProtectsItsUser() {
+        ValueOperations<String, String> valueOps = mock(ValueOperations.class);
+        SetOperations<String, String> setOps = mock(SetOperations.class);
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
+        when(stringRedisTemplate.opsForSet()).thenReturn(setOps);
+        when(couponMapper.getById(10L)).thenReturn(publishedCoupon());
+        when(userCouponMapper.listUserIdsByCouponId(10L)).thenReturn(Collections.singletonList(1L));
+        when(seckillRedisLedger.acquireRebuildLock(eq(10L), any(Duration.class))).thenReturn("lock");
+        when(seckillRedisLedger.awaitTerminalQuiescence(eq(10L), any(Duration.class))).thenReturn(true);
+        when(seckillRedisLedger.allActiveRequestIds(10L)).thenReturn(Collections.singleton("request-1"));
+        when(seckillRedisLedger.get("request-1")).thenReturn(SeckillRedisLedger.PendingRequest.builder()
+                .requestId("request-1").couponId(10L).userId(2L).status("PUBLISHED")
+                .attempt(1).createdAt(1L).build());
+
+        couponService.rebuildSeckillCache(10L);
+
+        verify(valueOps).set(eq(CouponServiceImpl.STOCK_KEY_PREFIX + 10L), eq("99"));
+        verify(setOps).add(eq(CouponServiceImpl.BOUGHT_KEY_PREFIX + 10L), eq("1"), eq("2"));
+        verify(seckillRedisLedger).releaseRebuildLock(10L, "lock");
     }
 
     @Test

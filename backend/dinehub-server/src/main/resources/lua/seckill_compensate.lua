@@ -1,7 +1,10 @@
 -- Atomic and idempotent Redis compensation.
--- KEYS: marker, stock, bought users
+-- KEYS: marker, stock, bought users, rebuild lock
 -- ARGV: userId, markerTtlSeconds, keepBought(0/1)
 -- returns 1 when this call performed the refund, 0 when already refunded
+if redis.call('exists', KEYS[4]) == 1 then
+    return -1
+end
 local ok = redis.call('set', KEYS[1], '1', 'NX', 'EX', tonumber(ARGV[2]))
 if not ok then
     return 0

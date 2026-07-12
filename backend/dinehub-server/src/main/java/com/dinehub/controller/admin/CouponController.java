@@ -6,6 +6,8 @@ import com.dinehub.entity.Coupon;
 import com.dinehub.result.PageResult;
 import com.dinehub.result.Result;
 import com.dinehub.service.CouponService;
+import com.dinehub.seckill.SeckillReconciliationService;
+import com.dinehub.vo.SeckillReconciliationVO;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +30,8 @@ public class CouponController {
 
     @Autowired
     private CouponService couponService;
+    @Autowired
+    private SeckillReconciliationService reconciliationService;
 
     @PostMapping
     @ApiOperation("新增优惠券")
@@ -56,5 +60,11 @@ public class CouponController {
         log.info("重建秒杀缓存:{}", id);
         couponService.rebuildSeckillCache(id);
         return Result.success();
+    }
+
+    @GetMapping("/{id}/reconciliation")
+    @ApiOperation("秒杀库存只读对账")
+    public Result<SeckillReconciliationVO> reconciliation(@PathVariable Long id) {
+        return Result.success(reconciliationService.reconcile(id));
     }
 }

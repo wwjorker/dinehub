@@ -30,6 +30,8 @@ class SeckillMessagePublisherTest {
     private RabbitTemplate rabbitTemplate;
     @Mock
     private SeckillRedisLedger ledger;
+    @Mock
+    private SeckillMetrics metrics;
     private SeckillMessagePublisher publisher;
 
     private SeckillMessage message() {
@@ -38,7 +40,7 @@ class SeckillMessagePublisherTest {
 
     @BeforeEach
     void setUp() {
-        publisher = new SeckillMessagePublisher(rabbitTemplate, ledger);
+        publisher = new SeckillMessagePublisher(rabbitTemplate, ledger, metrics);
         ReflectionTestUtils.setField(publisher, "confirmTimeoutMillis", 10000L);
         ReflectionTestUtils.setField(publisher, "settlementTimeoutMillis", 120000L);
         ReflectionTestUtils.setField(publisher, "retryDelayMillis", 5000L);

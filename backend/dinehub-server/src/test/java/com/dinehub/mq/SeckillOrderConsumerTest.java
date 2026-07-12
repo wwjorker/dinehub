@@ -5,6 +5,7 @@ import com.dinehub.seckill.SeckillRedisLedger;
 import com.dinehub.seckill.SeckillTerminalService;
 import com.dinehub.seckill.SeckillTerminalService.SettlementOutcome;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -29,6 +30,11 @@ class SeckillOrderConsumerTest {
 
     private SeckillMessage message() {
         return SeckillMessage.builder().userId(1L).couponId(10L).requestId("req-1").build();
+    }
+
+    @BeforeEach
+    void allowTerminalTransition() {
+        when(ledger.beginTerminalTransition(10L)).thenReturn(true);
     }
 
     @Test

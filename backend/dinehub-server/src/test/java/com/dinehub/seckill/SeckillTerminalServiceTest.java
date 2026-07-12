@@ -31,6 +31,8 @@ class SeckillTerminalServiceTest {
     private UserCouponMapper userCouponMapper;
     @Mock
     private CouponMapper couponMapper;
+    @Mock
+    private SeckillMetrics metrics;
     @InjectMocks
     private SeckillTerminalService service;
 

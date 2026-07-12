@@ -60,7 +60,8 @@ class SeckillLuaScriptTest {
     private Long run(String stockKey, String boughtKey, long userId) {
         String requestId = UUID.randomUUID().toString();
         return template.execute(script,
-                Arrays.asList(stockKey, boughtKey, "t:req:" + requestId, "t:active:" + stockKey),
+                Arrays.asList(stockKey, boughtKey, "t:req:" + requestId, "t:active:" + stockKey,
+                        "t:rebuild:" + stockKey),
                 String.valueOf(userId), "1", requestId, String.valueOf(System.currentTimeMillis()), "3600");
     }
 
@@ -91,6 +92,17 @@ class SeckillLuaScriptTest {
     @Test
     void missingStockKeyMeansSoldOutNotError() {
         assertEquals(1L, run("t:stock:absent", "t:bought:absent", 1));
+    }
+
+    @Test
+    void rebuildLockTemporarilyRejectsNewAdmission() {
+        String stockKey = "t:stock:locked";
+        String boughtKey = "t:bought:locked";
+        template.opsForValue().set(stockKey, "5");
+        template.opsForValue().set("t:rebuild:" + stockKey, "owner");
+
+        assertEquals(3L, run(stockKey, boughtKey, 1));
+        assertEquals("5", template.opsForValue().get(stockKey));
     }
 
     @Test

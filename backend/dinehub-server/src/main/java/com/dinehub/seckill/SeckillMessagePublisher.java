@@ -21,6 +21,7 @@ public class SeckillMessagePublisher {
 
     private final RabbitTemplate rabbitTemplate;
     private final SeckillRedisLedger ledger;
+    private final SeckillMetrics metrics;
 
     @Value("${dinehub.seckill.confirm-timeout-millis:10000}")
     private long confirmTimeoutMillis;
@@ -29,9 +30,11 @@ public class SeckillMessagePublisher {
     @Value("${dinehub.seckill.publish-retry-delay-millis:5000}")
     private long retryDelayMillis;
 
-    public SeckillMessagePublisher(RabbitTemplate rabbitTemplate, SeckillRedisLedger ledger) {
+    public SeckillMessagePublisher(RabbitTemplate rabbitTemplate, SeckillRedisLedger ledger,
+                                   SeckillMetrics metrics) {
         this.rabbitTemplate = rabbitTemplate;
         this.ledger = ledger;
+        this.metrics = metrics;
     }
 
     @PostConstruct
@@ -46,6 +49,7 @@ public class SeckillMessagePublisher {
             if (ack) {
                 ledger.markPublished(attempt.message, attempt.attempt, Duration.ofMillis(settlementTimeoutMillis));
             } else {
+                metrics.publishFailure();
                 ledger.markPublishFailed(attempt.message, attempt.attempt, Duration.ofMillis(retryDelayMillis),
                         cause == null ? "publisher nack" : cause);
             }
@@ -65,6 +69,7 @@ public class SeckillMessagePublisher {
                     .userId(Long.valueOf(String.valueOf(userId)))
                     .build();
             int attempt = Integer.parseInt(String.valueOf(attemptValue));
+            metrics.publishFailure();
             ledger.markPublishFailed(message, attempt, Duration.ofMillis(retryDelayMillis),
                     "returned " + returned.getReplyCode() + ": " + returned.getReplyText());
         });
@@ -79,6 +84,9 @@ public class SeckillMessagePublisher {
             return false;
         }
         int attempt = (int) claimed;
+        if (attempt > 1) {
+            metrics.publishRetry();
+        }
         CorrelationData correlationData = new CorrelationData(correlationId(message, attempt));
         try {
             rabbitTemplate.convertAndSend(RabbitMQConfiguration.SECKILL_EXCHANGE,
@@ -92,6 +100,7 @@ public class SeckillMessagePublisher {
                     }, correlationData);
             return true;
         } catch (RuntimeException ex) {
+            metrics.publishFailure();
             ledger.markPublishFailed(message, attempt, Duration.ofMillis(retryDelayMillis), ex.getMessage());
             log.warn("seckill publish attempt {} failed for request {}", attempt, message.getRequestId(), ex);
             return false;

@@ -13,6 +13,7 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.UUID;
 
 @Component
 public class SeckillRedisLedger {
@@ -22,21 +23,31 @@ public class SeckillRedisLedger {
     public static final String REQUEST_KEY_PREFIX = "seckill:req:";
     public static final String ACTIVE_KEY_PREFIX = "seckill:active:";
     public static final String COMPENSATED_KEY_PREFIX = "seckill:compensated:";
+    public static final String REBUILD_LOCK_KEY_PREFIX = "seckill:rebuild:";
+    public static final String TERMINAL_INFLIGHT_KEY_PREFIX = "seckill:terminal:inflight:";
 
     private final StringRedisTemplate redisTemplate;
+    private final SeckillMetrics metrics;
     private final DefaultRedisScript<Long> admissionScript;
     private final DefaultRedisScript<Long> claimScript;
     private final DefaultRedisScript<Long> publishResultScript;
     private final DefaultRedisScript<Long> markCompensatingScript;
     private final DefaultRedisScript<Long> compensateScript;
+    private final DefaultRedisScript<Long> terminalBeginScript;
+    private final DefaultRedisScript<Long> terminalEndScript;
+    private final DefaultRedisScript<Long> unlockScript;
 
-    public SeckillRedisLedger(StringRedisTemplate redisTemplate) {
+    public SeckillRedisLedger(StringRedisTemplate redisTemplate, SeckillMetrics metrics) {
         this.redisTemplate = redisTemplate;
+        this.metrics = metrics;
         this.admissionScript = script("lua/seckill.lua");
         this.claimScript = script("lua/seckill_publish_claim.lua");
         this.publishResultScript = script("lua/seckill_publish_result.lua");
         this.markCompensatingScript = script("lua/seckill_mark_compensating.lua");
         this.compensateScript = script("lua/seckill_compensate.lua");
+        this.terminalBeginScript = script("lua/seckill_terminal_begin.lua");
+        this.terminalEndScript = script("lua/seckill_terminal_end.lua");
+        this.unlockScript = script("lua/seckill_unlock.lua");
     }
 
     private DefaultRedisScript<Long> script(String location) {
@@ -48,10 +59,15 @@ public class SeckillRedisLedger {
 
     public Long admit(Long couponId, Long userId, String requestId, Duration ttl) {
         long now = System.currentTimeMillis();
-        return redisTemplate.execute(admissionScript,
-                Arrays.asList(stockKey(couponId), boughtKey(couponId), requestKey(requestId), activeKey(couponId)),
+        Long result = metrics.recordAdmission(() -> redisTemplate.execute(admissionScript,
+                Arrays.asList(stockKey(couponId), boughtKey(couponId), requestKey(requestId), activeKey(couponId),
+                        rebuildLockKey(couponId)),
                 String.valueOf(userId), String.valueOf(couponId), requestId, String.valueOf(now),
-                String.valueOf(Math.max(1L, ttl.getSeconds())));
+                String.valueOf(Math.max(1L, ttl.getSeconds()))));
+        if (result != null && result == 0L) {
+            metrics.admitted();
+        }
+        return result;
     }
 
     public long claimPublish(SeckillMessage message, Duration confirmTimeout) {
@@ -84,7 +100,7 @@ public class SeckillRedisLedger {
                 message.getRequestId(), String.valueOf(System.currentTimeMillis()), trim(error));
     }
 
-    public boolean compensate(SeckillMessage message, boolean keepBought, Duration markerTtl) {
+    public CompensationOutcome compensate(SeckillMessage message, boolean keepBought, Duration markerTtl) {
         Long stockTtl = redisTemplate.getExpire(stockKey(message.getCouponId()), TimeUnit.SECONDS);
         long markerSeconds = Math.max(1L, markerTtl.getSeconds());
         if (stockTtl != null && stockTtl > markerSeconds) {
@@ -92,10 +108,57 @@ public class SeckillRedisLedger {
         }
         Long result = redisTemplate.execute(compensateScript,
                 Arrays.asList(compensatedKey(message.getRequestId()), stockKey(message.getCouponId()),
-                        boughtKey(message.getCouponId())),
+                        boughtKey(message.getCouponId()), rebuildLockKey(message.getCouponId())),
                 String.valueOf(message.getUserId()), String.valueOf(markerSeconds),
                 keepBought ? "1" : "0");
-        return result != null && result == 1L;
+        if (result != null && result == -1L) {
+            return CompensationOutcome.DEFERRED;
+        }
+        return result != null && result == 1L
+                ? CompensationOutcome.APPLIED : CompensationOutcome.ALREADY_APPLIED;
+    }
+
+    public boolean beginTerminalTransition(Long couponId) {
+        Long result = redisTemplate.execute(terminalBeginScript,
+                Arrays.asList(rebuildLockKey(couponId), terminalInflightKey(couponId)), "60");
+        return result != null && result > 0;
+    }
+
+    public void endTerminalTransition(Long couponId) {
+        redisTemplate.execute(terminalEndScript, Collections.singletonList(terminalInflightKey(couponId)));
+    }
+
+    public String acquireRebuildLock(Long couponId, Duration ttl) {
+        String token = UUID.randomUUID().toString();
+        Boolean acquired = redisTemplate.opsForValue()
+                .setIfAbsent(rebuildLockKey(couponId), token, ttl);
+        return Boolean.TRUE.equals(acquired) ? token : null;
+    }
+
+    public boolean awaitTerminalQuiescence(Long couponId, Duration timeout) {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        do {
+            String value = redisTemplate.opsForValue().get(terminalInflightKey(couponId));
+            if (value == null || Long.parseLong(value) <= 0) {
+                return true;
+            }
+            try {
+                Thread.sleep(25L);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        } while (System.nanoTime() < deadline);
+        return false;
+    }
+
+    public void releaseRebuildLock(Long couponId, String token) {
+        redisTemplate.execute(unlockScript, Collections.singletonList(rebuildLockKey(couponId)), token);
+    }
+
+    public Set<String> allActiveRequestIds(Long couponId) {
+        Set<String> values = redisTemplate.opsForZSet().range(activeKey(couponId), 0, -1);
+        return values == null ? Collections.emptySet() : new LinkedHashSet<>(values);
     }
 
     public PendingRequest get(String requestId) {
@@ -133,6 +196,20 @@ public class SeckillRedisLedger {
         return Boolean.TRUE.equals(redisTemplate.hasKey(compensatedKey(requestId)));
     }
 
+    public Integer availableStock(Long couponId) {
+        String value = redisTemplate.opsForValue().get(stockKey(couponId));
+        return value == null ? null : Integer.valueOf(value);
+    }
+
+    public Long protectedUserCount(Long couponId) {
+        return redisTemplate.opsForSet().size(boughtKey(couponId));
+    }
+
+    public boolean isUserProtected(Long couponId, Long userId) {
+        return Boolean.TRUE.equals(redisTemplate.opsForSet()
+                .isMember(boughtKey(couponId), String.valueOf(userId)));
+    }
+
     public void removeOrphan(Long couponId, String requestId) {
         redisTemplate.opsForZSet().remove(activeKey(couponId), requestId);
     }
@@ -164,6 +241,18 @@ public class SeckillRedisLedger {
         return COMPENSATED_KEY_PREFIX + requestId;
     }
 
+    public static String rebuildLockKey(Long couponId) {
+        return REBUILD_LOCK_KEY_PREFIX + couponId;
+    }
+
+    public static String terminalInflightKey(Long couponId) {
+        return TERMINAL_INFLIGHT_KEY_PREFIX + couponId;
+    }
+
+    public enum CompensationOutcome {
+        APPLIED, ALREADY_APPLIED, DEFERRED
+    }
+
     @lombok.Data
     @lombok.Builder
     public static class PendingRequest {
@@ -180,6 +269,7 @@ public class SeckillRedisLedger {
                     .requestId(requestId)
                     .userId(userId)
                     .couponId(couponId)
+                    .admittedAt(createdAt)
                     .build();
         }
     }

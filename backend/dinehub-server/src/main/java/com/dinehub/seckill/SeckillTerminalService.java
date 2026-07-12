@@ -19,12 +19,14 @@ public class SeckillTerminalService {
     private final SeckillRequestMapper requestMapper;
     private final UserCouponMapper userCouponMapper;
     private final CouponMapper couponMapper;
+    private final SeckillMetrics metrics;
 
     public SeckillTerminalService(SeckillRequestMapper requestMapper, UserCouponMapper userCouponMapper,
-                                  CouponMapper couponMapper) {
+                                  CouponMapper couponMapper, SeckillMetrics metrics) {
         this.requestMapper = requestMapper;
         this.userCouponMapper = userCouponMapper;
         this.couponMapper = couponMapper;
+        this.metrics = metrics;
     }
 
     /**
@@ -46,6 +48,7 @@ public class SeckillTerminalService {
         if (couponMapper.deductStock(message.getCouponId()) == 0) {
             throw new IllegalStateException("DB stock exhausted for request " + message.getRequestId());
         }
+        metrics.settled(message.getAdmittedAt());
         return SettlementOutcome.SETTLED;
     }
 

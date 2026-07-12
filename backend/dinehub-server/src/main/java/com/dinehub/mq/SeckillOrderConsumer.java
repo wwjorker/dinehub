@@ -8,6 +8,7 @@ import com.dinehub.seckill.SeckillTerminalService.SettlementOutcome;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
+import org.slf4j.MDC;
 
 /**
  * Persists a granted coupon. MySQL terminal arbitration makes duplicate broker
@@ -31,12 +32,24 @@ public class SeckillOrderConsumer {
 
     @RabbitListener(queues = RabbitMQConfiguration.SECKILL_QUEUE)
     public void onMessage(SeckillMessage message) {
-        SettlementOutcome outcome = terminalService.settle(message);
-        if (outcome == SettlementOutcome.COMPENSATING) {
-            compensationService.compensate(message, "late delivery after compensation claim");
-            return;
+        MDC.put("requestId", message.getRequestId());
+        try {
+            if (!ledger.beginTerminalTransition(message.getCouponId())) {
+                throw new IllegalStateException("coupon ledger rebuild in progress");
+            }
+            try {
+                SettlementOutcome outcome = terminalService.settle(message);
+                if (outcome == SettlementOutcome.COMPENSATING) {
+                    compensationService.compensate(message, "late delivery after compensation claim");
+                    return;
+                }
+                ledger.cleanup(message);
+                log.info("seckill request terminal outcome={}, requestId={}", outcome, message.getRequestId());
+            } finally {
+                ledger.endTerminalTransition(message.getCouponId());
+            }
+        } finally {
+            MDC.remove("requestId");
         }
-        ledger.cleanup(message);
-        log.info("seckill request terminal outcome={}, requestId={}", outcome, message.getRequestId());
     }
 }

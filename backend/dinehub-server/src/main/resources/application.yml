@@ -51,6 +51,8 @@ mybatis:
     map-underscore-to-camel-case: true
 
 logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] [%X{requestId:-}] %logger{36} - %msg%n"
   level:
     com:
       dinehub:
@@ -59,6 +61,20 @@ logging:
         mapper: ${DINEHUB_LOG_MAPPER:info}
         service: info
         controller: info
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: never
+
+info:
+  app:
+    name: DineHub
+    version: 2.0
 
 dinehub:
   jwt:

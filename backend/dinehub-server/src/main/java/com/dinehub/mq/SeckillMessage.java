@@ -24,4 +24,6 @@ public class SeckillMessage implements Serializable {
 
     //请求标识,用于日志追踪;幂等由 uk_user_coupon 兜底
     private String requestId;
+
+    private Long admittedAt;
 }

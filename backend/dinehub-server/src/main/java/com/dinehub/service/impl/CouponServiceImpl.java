@@ -33,7 +33,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.LinkedHashSet;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -48,6 +50,7 @@ public class CouponServiceImpl implements CouponService {
     public static final long SECKILL_GRANTED = 0L;
     public static final long SECKILL_SOLD_OUT = 1L;
     public static final long SECKILL_DUPLICATE = 2L;
+    public static final long SECKILL_REBUILDING = 3L;
 
     /**
      * 抢券实现模式:redis = Redis预扣+Lua+MQ异步落库(默认);db = 直接DB行锁扣减(压测对照组)
@@ -108,10 +111,9 @@ public class CouponServiceImpl implements CouponService {
     }
 
     /**
-     * 重建秒杀缓存:幂等,可反复调用,用DB的剩余库存与持券记录重建资格账本与防重集合。
-     * 边界:以DB为准,尚未落库的在途异步准入不在账本内——活动进行且队列有积压时重建
-     * 会放大库存并漏掉在途用户,因此仅应在无在途请求时使用(活动未开始、已结束或
-     * 队列确认排空);活动中的安全重建需要可靠消息账本(seckill_request)支持。
+     * Rebuilds the Redis view while admissions and terminal transitions are behind
+     * a short per-coupon barrier. Nonterminal reservations reduce available stock
+     * and their users remain in the one-per-user set.
      */
     public void rebuildSeckillCache(Long id) {
         Coupon coupon = couponMapper.getById(id);
@@ -121,30 +123,71 @@ public class CouponServiceImpl implements CouponService {
         if (!Coupon.STATUS_PUBLISHED.equals(coupon.getStatus())) {
             throw new SeckillBusinessException(MessageConstant.COUPON_NOT_PUBLISHED);
         }
-        preheat(coupon);
-        log.info("seckill cache rebuilt for coupon {}: stock {}", id, coupon.getRemainingStock());
+        String lockToken = seckillRedisLedger.acquireRebuildLock(id, Duration.ofSeconds(30));
+        if (lockToken == null) {
+            throw new SeckillBusinessException(MessageConstant.SECKILL_BUSY);
+        }
+        try {
+            if (!seckillRedisLedger.awaitTerminalQuiescence(id, Duration.ofSeconds(5))) {
+                throw new SeckillBusinessException(MessageConstant.SECKILL_BUSY);
+            }
+            Set<String> activeRequestIds = seckillRedisLedger.allActiveRequestIds(id);
+            Coupon current = couponMapper.getById(id);
+            Set<Long> protectedUsers = new LinkedHashSet<>(userCouponMapper.listUserIdsByCouponId(id));
+            int activeReservations = 0;
+            for (String requestId : activeRequestIds) {
+                PendingRequest pending = seckillRedisLedger.get(requestId);
+                if (pending == null || !Objects.equals(id, pending.getCouponId())) {
+                    throw new IllegalStateException("incomplete active ledger for request " + requestId);
+                }
+                SeckillRequest terminal = seckillTerminalService.get(requestId);
+                if (terminal != null && (SeckillRequest.SETTLED.equals(terminal.getStatus())
+                        || SeckillRequest.COMPENSATED.equals(terminal.getStatus()))) {
+                    seckillRedisLedger.cleanup(pending.toMessage());
+                    continue;
+                }
+                if (seckillRedisLedger.isCompensated(requestId)) {
+                    continue;
+                }
+                activeReservations++;
+                protectedUsers.add(pending.getUserId());
+            }
+            int available = current.getRemainingStock() - activeReservations;
+            if (available < 0) {
+                throw new IllegalStateException("active reservations exceed DB stock for coupon " + id);
+            }
+            writeRedisLedger(current, available, protectedUsers);
+            log.info("seckill cache rebuilt for coupon {}: available={}, active={}",
+                    id, available, activeReservations);
+        } finally {
+            seckillRedisLedger.releaseRebuildLock(id, lockToken);
+        }
     }
 
     /**
      * 以DB为准装载Redis账本:库存=remaining_stock,防重集合=已持券用户,TTL对齐活动周期
      */
     private void preheat(Coupon coupon) {
+        writeRedisLedger(coupon, coupon.getRemainingStock(),
+                new LinkedHashSet<>(userCouponMapper.listUserIdsByCouponId(coupon.getId())));
+    }
+
+    private void writeRedisLedger(Coupon coupon, int available, Set<Long> protectedUsers) {
         Long id = coupon.getId();
         String stockKey = STOCK_KEY_PREFIX + id;
         String boughtKey = BOUGHT_KEY_PREFIX + id;
-        stringRedisTemplate.opsForValue().set(stockKey, String.valueOf(coupon.getRemainingStock()));
-        //防重集合以DB持券记录为准重建,Redis数据丢失后重建也不会破坏一人一单
+        stringRedisTemplate.opsForValue().set(stockKey, String.valueOf(available));
         stringRedisTemplate.delete(boughtKey);
-        List<Long> holders = userCouponMapper.listUserIdsByCouponId(id);
-        if (!holders.isEmpty()) {
-            String[] members = holders.stream().map(String::valueOf).toArray(String[]::new);
+        if (!protectedUsers.isEmpty()) {
+            String[] members = protectedUsers.stream().map(String::valueOf).toArray(String[]::new);
             stringRedisTemplate.opsForSet().add(boughtKey, members);
         }
         Duration ttl = Duration.between(LocalDateTime.now(), coupon.getSeckillEndTime()).plus(KEY_TTL_MARGIN);
-        if (!ttl.isNegative()) {
-            stringRedisTemplate.expire(stockKey, ttl);
-            stringRedisTemplate.expire(boughtKey, ttl);
+        if (ttl.isNegative() || ttl.isZero()) {
+            ttl = Duration.ofHours(1);
         }
+        stringRedisTemplate.expire(stockKey, ttl);
+        stringRedisTemplate.expire(boughtKey, ttl);
     }
 
     public SeckillTicketVO seckill(Long couponId, Long userId) {
@@ -190,10 +233,14 @@ public class CouponServiceImpl implements CouponService {
         if (result == SECKILL_DUPLICATE) {
             throw new SeckillBusinessException(MessageConstant.SECKILL_REPEAT);
         }
+        if (result == SECKILL_REBUILDING) {
+            throw new SeckillBusinessException(MessageConstant.SECKILL_BUSY);
+        }
         SeckillMessage message = SeckillMessage.builder()
                 .userId(userId)
                 .couponId(couponId)
                 .requestId(requestId)
+                .admittedAt(System.currentTimeMillis())
                 .build();
         seckillMessagePublisher.publish(message);
         log.info("seckill admitted, requestId={}", requestId);

@@ -7,10 +7,19 @@ import com.dinehub.entity.Employee;
 import com.dinehub.enumeration.OperationType;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Update;
 import org.apache.ibatis.annotations.Select;
 
 @Mapper
 public interface EmployeeMapper {
+
+    /**
+     * 密码哈希原子升级:仅当存储值仍为旧哈希时替换,
+     * 并发登录触发的多次升级只有一次生效,且不会覆盖用户主动改的新密码
+     */
+    @Update("update employee set password = #{newHash} where id = #{id} and password = #{oldHash}")
+    int upgradePassword(@Param("id") Long id, @Param("oldHash") String oldHash, @Param("newHash") String newHash);
 
     /**
      * 根据用户名查询员工

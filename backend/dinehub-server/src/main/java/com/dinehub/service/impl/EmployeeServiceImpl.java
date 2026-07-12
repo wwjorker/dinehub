@@ -18,6 +18,7 @@ import com.dinehub.result.PageResult;
 import com.dinehub.service.EmployeeService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.DigestUtils;
 
@@ -29,6 +30,9 @@ public class EmployeeServiceImpl implements EmployeeService {
 
     @Autowired
     private EmployeeMapper employeeMapper;
+
+    //BCrypt:每账户独立盐,替代原无盐MD5
+    private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     /**
      * 员工登录
@@ -49,12 +53,21 @@ public class EmployeeServiceImpl implements EmployeeService {
             throw new AccountNotFoundException(MessageConstant.ACCOUNT_NOT_FOUND);
         }
 
-        //密码比对
-        //对前端传过来的明文密码进行md5加密处理
-        password = DigestUtils.md5DigestAsHex(password.getBytes());
-        if (!password.equals(employee.getPassword())) {
-            //密码错误
-            throw new PasswordErrorException(MessageConstant.PASSWORD_ERROR);
+        //密码比对:新账户是BCrypt;历史MD5账户校验通过后原子升级为BCrypt
+        String stored = employee.getPassword();
+        if (stored != null && stored.startsWith("$2")) {
+            if (!passwordEncoder.matches(password, stored)) {
+                //密码错误
+                throw new PasswordErrorException(MessageConstant.PASSWORD_ERROR);
+            }
+        } else {
+            String md5 = DigestUtils.md5DigestAsHex(password.getBytes());
+            if (!md5.equals(stored)) {
+                //密码错误
+                throw new PasswordErrorException(MessageConstant.PASSWORD_ERROR);
+            }
+            //平滑迁移:条件更新仅在密码仍为旧哈希时生效,并发登录只会有一方升级
+            employeeMapper.upgradePassword(employee.getId(), stored, passwordEncoder.encode(password));
         }
 
         if (employee.getStatus() == StatusConstant.DISABLE) {
@@ -80,8 +93,8 @@ public class EmployeeServiceImpl implements EmployeeService {
         //设置账号的状态，默认正常状态 1表示正常 0表示锁定
         employee.setStatus(StatusConstant.ENABLE);
 
-        //设置密码，默认密码123456
-        employee.setPassword(DigestUtils.md5DigestAsHex(PasswordConstant.DEFAULT_PASSWORD.getBytes()));
+        //设置密码，默认密码123456(BCrypt存储)
+        employee.setPassword(passwordEncoder.encode(PasswordConstant.DEFAULT_PASSWORD));
 
         //设置当前记录的创建时间和修改时间
         //employee.setCreateTime(LocalDateTime.now());

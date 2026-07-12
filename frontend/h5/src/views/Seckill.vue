@@ -23,14 +23,34 @@ async function load() {
 async function grab(c) {
   grabbing.value = c.id
   try {
-    await api.seckill(c.id)
-    showToast({ type: 'success', message: '抢到了!正在到账,稍后可在"我的"查看' })
+    const ticket = await api.seckill(c.id)
+    if (ticket.status === 'SUCCESS') {
+      showToast({ type: 'success', message: '抢券成功' })
+    } else {
+      const result = await pollResult(ticket.requestId)
+      if (result === 'SUCCESS') {
+        showToast({ type: 'success', message: '抢券成功,已到账' })
+      } else if (result === 'FAILED') {
+        showToast('处理失败,名额已退回')
+      } else {
+        showToast('资格已锁定,后台仍在处理中')
+      }
+    }
     load()
   } catch (e) {
     /* 已抢完/重复抢购等文案由统一请求层弹出 */
   } finally {
     grabbing.value = 0
   }
+}
+
+async function pollResult(requestId) {
+  for (let i = 0; i < 20; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    const result = await api.seckillResult(requestId)
+    if (result.status !== 'PENDING') return result.status
+  }
+  return 'PENDING'
 }
 
 onMounted(load)

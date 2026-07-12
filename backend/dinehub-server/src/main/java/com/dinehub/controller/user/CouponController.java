@@ -6,6 +6,8 @@ import com.dinehub.ratelimit.RateLimit;
 import com.dinehub.result.Result;
 import com.dinehub.service.CouponService;
 import com.dinehub.vo.UserCouponVO;
+import com.dinehub.vo.SeckillResultVO;
+import com.dinehub.vo.SeckillTicketVO;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.extern.slf4j.Slf4j;
@@ -33,11 +35,15 @@ public class CouponController {
     @PostMapping("/seckill/{couponId}")
     @ApiOperation("限时秒杀抢券")
     @RateLimit(key = "seckill", permitsPerSecond = 500, capacity = 1000)
-    public Result<String> seckill(@PathVariable Long couponId) {
+    public Result<SeckillTicketVO> seckill(@PathVariable Long couponId) {
         Long userId = BaseContext.getCurrentId();
-        couponService.seckill(couponId, userId);
-        //异步落库模式下此时资格已锁定,到账以我的券列表为准
-        return Result.success("抢购成功,处理中");
+        return Result.success(couponService.seckill(couponId, userId));
+    }
+
+    @GetMapping("/seckill/result/{requestId}")
+    @ApiOperation("查询秒杀处理结果")
+    public Result<SeckillResultVO> seckillResult(@PathVariable String requestId) {
+        return Result.success(couponService.getSeckillResult(requestId, BaseContext.getCurrentId()));
     }
 
     @GetMapping("/list")

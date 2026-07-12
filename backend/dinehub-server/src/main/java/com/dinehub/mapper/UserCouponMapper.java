@@ -5,6 +5,7 @@ import com.dinehub.vo.UserCouponVO;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Options;
+import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
@@ -27,4 +28,7 @@ public interface UserCouponMapper {
      */
     @Select("select user_id from user_coupon where coupon_id = #{couponId}")
     List<Long> listUserIdsByCouponId(Long couponId);
+
+    @Select("select count(1) from user_coupon where user_id = #{userId} and coupon_id = #{couponId}")
+    int countByUserAndCoupon(@Param("userId") Long userId, @Param("couponId") Long couponId);
 }

@@ -27,6 +27,10 @@ spring:
     port: ${DINEHUB_MQ_PORT:5672}
     username: ${DINEHUB_MQ_USERNAME:dinehub}
     password: ${DINEHUB_MQ_PASSWORD:dinehub}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
     listener:
       simple:
         # benchmark showed a single consumer drains ~85 msg/s (fsync-bound);
@@ -100,6 +104,12 @@ dinehub:
   seckill:
     # redis = Redis+Lua+MQ async persistence (default); db = row-lock deduction (benchmark baseline)
     mode: ${DINEHUB_SECKILL_MODE:redis}
+    confirm-timeout-millis: ${DINEHUB_SECKILL_CONFIRM_TIMEOUT_MILLIS:10000}
+    settlement-timeout-millis: ${DINEHUB_SECKILL_SETTLEMENT_TIMEOUT_MILLIS:120000}
+    publish-retry-delay-millis: ${DINEHUB_SECKILL_RETRY_DELAY_MILLIS:5000}
+    scan-interval-millis: ${DINEHUB_SECKILL_SCAN_INTERVAL_MILLIS:60000}
+    max-publish-attempts: ${DINEHUB_SECKILL_MAX_ATTEMPTS:10}
+    max-pending-millis: ${DINEHUB_SECKILL_MAX_PENDING_MILLIS:1800000}
   scan-order:
     # URL encoded into each table's QR code; points at the dine-in H5 entry
     h5-base-url: ${DINEHUB_H5_BASE_URL:http://localhost:8080/h5/index.html}

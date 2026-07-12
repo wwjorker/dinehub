@@ -36,6 +36,10 @@ public interface CouponMapper {
             " and seckill_end_time > now() order by seckill_start_time")
     List<Coupon> listActiveSeckill();
 
+    @Select("select id from coupon where status = 1 and type = 2" +
+            " and seckill_end_time > date_sub(now(), interval 1 day)")
+    List<Long> listReliableScanCouponIds();
+
     Page<Coupon> pageQuery(CouponPageQueryDTO couponPageQueryDTO);
 
     @AutoFill(value = OperationType.UPDATE)

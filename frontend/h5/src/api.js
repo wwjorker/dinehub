@@ -37,5 +37,6 @@ export const api = {
   historyOrders: (page = 1, pageSize = 10) => request(`/user/order/historyOrders?page=${page}&pageSize=${pageSize}`),
   seckillList: () => request('/user/coupon/available'),
   seckill: (couponId) => request(`/user/coupon/seckill/${couponId}`, { method: 'POST' }),
+  seckillResult: (requestId) => request(`/user/coupon/seckill/result/${requestId}`),
   myCoupons: () => request('/user/coupon/list')
 }

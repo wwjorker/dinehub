@@ -1,44 +1,47 @@
 package com.dinehub.service.impl;
 
-import com.dinehub.config.RabbitMQConfiguration;
 import com.dinehub.constant.MessageConstant;
 import com.dinehub.dto.CouponDTO;
 import com.dinehub.dto.CouponPageQueryDTO;
 import com.dinehub.entity.Coupon;
 import com.dinehub.entity.UserCoupon;
+import com.dinehub.entity.SeckillRequest;
 import com.dinehub.exception.SeckillBusinessException;
 import com.dinehub.mapper.CouponMapper;
 import com.dinehub.mapper.UserCouponMapper;
 import com.dinehub.mq.SeckillMessage;
 import com.dinehub.result.PageResult;
 import com.dinehub.service.CouponService;
+import com.dinehub.seckill.SeckillMessagePublisher;
+import com.dinehub.seckill.SeckillRedisLedger;
+import com.dinehub.seckill.SeckillRedisLedger.PendingRequest;
+import com.dinehub.seckill.SeckillTerminalService;
+import com.dinehub.vo.SeckillResultVO;
+import com.dinehub.vo.SeckillTicketVO;
 import com.dinehub.vo.UserCouponVO;
 import com.github.pagehelper.Page;
 import com.github.pagehelper.PageHelper;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
 @Slf4j
 public class CouponServiceImpl implements CouponService {
 
-    public static final String STOCK_KEY_PREFIX = "seckill:stock:";
-    public static final String BOUGHT_KEY_PREFIX = "seckill:bought:";
-    public static final String COMPENSATED_KEY_PREFIX = "seckill:compensated:";
+    public static final String STOCK_KEY_PREFIX = SeckillRedisLedger.STOCK_KEY_PREFIX;
+    public static final String BOUGHT_KEY_PREFIX = SeckillRedisLedger.BOUGHT_KEY_PREFIX;
     //活动结束后再保留一天,避免脏key常驻
     private static final Duration KEY_TTL_MARGIN = Duration.ofDays(1);
 
@@ -59,36 +62,14 @@ public class CouponServiceImpl implements CouponService {
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
     @Autowired
-    private RabbitTemplate rabbitTemplate;
+    private SeckillRedisLedger seckillRedisLedger;
+    @Autowired
+    private SeckillMessagePublisher seckillMessagePublisher;
+    @Autowired
+    private SeckillTerminalService seckillTerminalService;
     //编程式事务:seckillByDb 由本类方法内部调用,注解事务会因自调用绕过代理而失效
     @Autowired
     private TransactionTemplate transactionTemplate;
-
-    private final DefaultRedisScript<Long> seckillScript;
-    private final DefaultRedisScript<Long> compensateScript;
-
-    public CouponServiceImpl() {
-        seckillScript = new DefaultRedisScript<>();
-        seckillScript.setLocation(new org.springframework.core.io.ClassPathResource("lua/seckill.lua"));
-        seckillScript.setResultType(Long.class);
-        compensateScript = new DefaultRedisScript<>();
-        compensateScript.setLocation(new org.springframework.core.io.ClassPathResource("lua/seckill_compensate.lua"));
-        compensateScript.setResultType(Long.class);
-    }
-
-    /**
-     * 原子且幂等地回补一个抢购名额:同一requestId只会补偿一次。
-     * 用于消息发送失败的即时回滚与死信队列的最终补偿。
-     */
-    public boolean compensate(Long couponId, Long userId, String requestId) {
-        List<String> keys = Arrays.asList(
-                COMPENSATED_KEY_PREFIX + requestId,
-                STOCK_KEY_PREFIX + couponId,
-                BOUGHT_KEY_PREFIX + couponId);
-        Long result = stringRedisTemplate.execute(compensateScript, keys,
-                String.valueOf(userId), String.valueOf(Duration.ofDays(1).getSeconds()));
-        return result != null && result == 1L;
-    }
 
     public Coupon save(CouponDTO couponDTO) {
         if (Coupon.TYPE_SECKILL.equals(couponDTO.getType())
@@ -166,7 +147,7 @@ public class CouponServiceImpl implements CouponService {
         }
     }
 
-    public void seckill(Long couponId, Long userId) {
+    public SeckillTicketVO seckill(Long couponId, Long userId) {
         Coupon coupon = couponMapper.getById(couponId);
         //前置校验:券存在、已发布、在时间窗口内
         if (coupon == null) {
@@ -185,17 +166,24 @@ public class CouponServiceImpl implements CouponService {
 
         if ("db".equals(seckillMode)) {
             seckillByDb(couponId, userId);
+            return SeckillTicketVO.builder().status("SUCCESS").build();
         } else {
-            seckillByRedis(couponId, userId);
+            return seckillByRedis(coupon, userId);
         }
     }
 
     /**
      * Redis预扣模式:Lua原子判定+扣减,成功后发MQ异步落库,响应时间与DB解耦
      */
-    private void seckillByRedis(Long couponId, Long userId) {
-        List<String> keys = Arrays.asList(STOCK_KEY_PREFIX + couponId, BOUGHT_KEY_PREFIX + couponId);
-        Long result = stringRedisTemplate.execute(seckillScript, keys, String.valueOf(userId));
+    private SeckillTicketVO seckillByRedis(Coupon coupon, Long userId) {
+        Long couponId = coupon.getId();
+        String requestId = UUID.randomUUID().toString();
+        Duration ttl = Duration.between(LocalDateTime.now(), coupon.getSeckillEndTime())
+                .plus(KEY_TTL_MARGIN);
+        if (ttl.isNegative() || ttl.isZero()) {
+            ttl = KEY_TTL_MARGIN;
+        }
+        Long result = seckillRedisLedger.admit(couponId, userId, requestId, ttl);
         if (result == null || result == SECKILL_SOLD_OUT) {
             throw new SeckillBusinessException(MessageConstant.SECKILL_SOLD_OUT);
         }
@@ -205,18 +193,33 @@ public class CouponServiceImpl implements CouponService {
         SeckillMessage message = SeckillMessage.builder()
                 .userId(userId)
                 .couponId(couponId)
-                .requestId(UUID.randomUUID().toString())
+                .requestId(requestId)
                 .build();
-        try {
-            rabbitTemplate.convertAndSend(RabbitMQConfiguration.SECKILL_EXCHANGE,
-                    RabbitMQConfiguration.SECKILL_ROUTING_KEY, message);
-        } catch (Exception e) {
-            //Redis已扣但消息没发出去:立刻把名额还回去,否则名额被永久占用
-            compensate(couponId, userId, message.getRequestId());
-            log.error("seckill message send failed, slot compensated: {}", message, e);
-            throw new SeckillBusinessException(MessageConstant.SECKILL_BUSY);
+        seckillMessagePublisher.publish(message);
+        log.info("seckill admitted, requestId={}", requestId);
+        return SeckillTicketVO.builder().requestId(requestId).status("PENDING").build();
+    }
+
+    public SeckillResultVO getSeckillResult(String requestId, Long userId) {
+        SeckillRequest terminal = seckillTerminalService.get(requestId);
+        if (terminal != null) {
+            verifyResultOwner(terminal.getUserId(), userId);
+            String status = SeckillRequest.SETTLED.equals(terminal.getStatus()) ? "SUCCESS"
+                    : SeckillRequest.COMPENSATED.equals(terminal.getStatus()) ? "FAILED" : "PENDING";
+            return SeckillResultVO.builder().requestId(requestId).status(status).build();
         }
-        log.info("seckill granted, message sent: {}", message);
+        PendingRequest pending = seckillRedisLedger.get(requestId);
+        if (pending == null) {
+            return SeckillResultVO.builder().requestId(requestId).status("UNKNOWN").build();
+        }
+        verifyResultOwner(pending.getUserId(), userId);
+        return SeckillResultVO.builder().requestId(requestId).status("PENDING").build();
+    }
+
+    private void verifyResultOwner(Long ownerId, Long userId) {
+        if (!Objects.equals(ownerId, userId)) {
+            throw new SeckillBusinessException(MessageConstant.COUPON_NOT_FOUND);
+        }
     }
 
     /**

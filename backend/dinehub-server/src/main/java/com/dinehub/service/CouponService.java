@@ -5,6 +5,8 @@ import com.dinehub.dto.CouponPageQueryDTO;
 import com.dinehub.entity.Coupon;
 import com.dinehub.result.PageResult;
 import com.dinehub.vo.UserCouponVO;
+import com.dinehub.vo.SeckillResultVO;
+import com.dinehub.vo.SeckillTicketVO;
 
 import java.util.List;
 
@@ -28,17 +30,14 @@ public interface CouponService {
     /**
      * 抢券入口,按配置走 Redis+Lua+MQ 或 DB 行锁扣减
      */
-    void seckill(Long couponId, Long userId);
+    SeckillTicketVO seckill(Long couponId, Long userId);
+
+    SeckillResultVO getSeckillResult(String requestId, Long userId);
 
     /**
      * 我的券列表
      */
     List<UserCouponVO> listByUserId(Long userId);
-
-    /**
-     * 原子且幂等地回补一个抢购名额(同一requestId只补偿一次)
-     */
-    boolean compensate(Long couponId, Long userId, String requestId);
 
     /**
      * C端可见的进行中/未开始秒杀券

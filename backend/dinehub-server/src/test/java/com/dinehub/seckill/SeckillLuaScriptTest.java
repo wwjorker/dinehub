@@ -19,6 +19,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -57,7 +58,10 @@ class SeckillLuaScriptTest {
     }
 
     private Long run(String stockKey, String boughtKey, long userId) {
-        return template.execute(script, Arrays.asList(stockKey, boughtKey), String.valueOf(userId));
+        String requestId = UUID.randomUUID().toString();
+        return template.execute(script,
+                Arrays.asList(stockKey, boughtKey, "t:req:" + requestId, "t:active:" + stockKey),
+                String.valueOf(userId), "1", requestId, String.valueOf(System.currentTimeMillis()), "3600");
     }
 
     @Test
@@ -90,16 +94,14 @@ class SeckillLuaScriptTest {
     }
 
     @Test
-    void boughtSetInheritsStockTtl() {
+    void admissionLedgerKeysReceiveCampaignTtl() {
         String stockKey = "t:stock:4", boughtKey = "t:bought:4";
         template.opsForValue().set(stockKey, "5");
-        template.expire(stockKey, java.time.Duration.ofHours(1));
-
         run(stockKey, boughtKey, 1);
 
         Long ttl = template.getExpire(boughtKey);
         org.junit.jupiter.api.Assertions.assertNotNull(ttl);
-        org.junit.jupiter.api.Assertions.assertTrue(ttl > 0, "bought set must expire with the stock key");
+        org.junit.jupiter.api.Assertions.assertTrue(ttl > 0, "bought set must expire with the campaign ledger");
     }
 
     @Test

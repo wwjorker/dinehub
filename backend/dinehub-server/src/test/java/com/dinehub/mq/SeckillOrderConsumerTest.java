@@ -1,18 +1,16 @@
 package com.dinehub.mq;
 
-import com.dinehub.mapper.CouponMapper;
-import com.dinehub.mapper.UserCouponMapper;
+import com.dinehub.seckill.SeckillCompensationService;
+import com.dinehub.seckill.SeckillRedisLedger;
+import com.dinehub.seckill.SeckillTerminalService;
+import com.dinehub.seckill.SeckillTerminalService.SettlementOutcome;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.dao.DuplicateKeyException;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -21,10 +19,11 @@ import static org.mockito.Mockito.when;
 class SeckillOrderConsumerTest {
 
     @Mock
-    private UserCouponMapper userCouponMapper;
+    private SeckillTerminalService terminalService;
     @Mock
-    private CouponMapper couponMapper;
-
+    private SeckillCompensationService compensationService;
+    @Mock
+    private SeckillRedisLedger ledger;
     @InjectMocks
     private SeckillOrderConsumer consumer;
 
@@ -33,36 +32,41 @@ class SeckillOrderConsumerTest {
     }
 
     @Test
-    void persistsCouponAndDeductsDbStock() {
-        when(couponMapper.deductStock(10L)).thenReturn(1);
+    void settledDeliveryCleansTransientLedger() {
+        when(terminalService.settle(message())).thenReturn(SettlementOutcome.SETTLED);
 
         consumer.onMessage(message());
 
-        verify(userCouponMapper).insert(any());
-        verify(couponMapper).deductStock(10L);
+        verify(ledger).cleanup(message());
+        verify(compensationService, never()).compensate(message(), "late delivery after compensation claim");
     }
 
     @Test
-    void duplicateDeliveryIsIdempotent() {
-        //same message delivered twice: unique key fires, message is acked without a second deduction
-        doThrow(new DuplicateKeyException("uk_user_coupon")).when(userCouponMapper).insert(any());
+    void duplicateSettledDeliveryIsIdempotent() {
+        when(terminalService.settle(message())).thenReturn(SettlementOutcome.SETTLED);
 
-        assertDoesNotThrow(() -> consumer.onMessage(message()));
-        verify(couponMapper, never()).deductStock(any());
+        consumer.onMessage(message());
+        consumer.onMessage(message());
+
+        verify(terminalService, org.mockito.Mockito.times(2)).settle(message());
+        verify(ledger, org.mockito.Mockito.times(2)).cleanup(message());
     }
 
     @Test
-    void unexpectedFailurePropagatesForRetry() {
-        doThrow(new RuntimeException("db down")).when(userCouponMapper).insert(any());
+    void lateDeliveryContinuesCompensationInsteadOfGranting() {
+        when(terminalService.settle(message())).thenReturn(SettlementOutcome.COMPENSATING);
 
-        assertThrows(RuntimeException.class, () -> consumer.onMessage(message()));
+        consumer.onMessage(message());
+
+        verify(compensationService).compensate(message(), "late delivery after compensation claim");
+        verify(ledger, never()).cleanup(message());
     }
 
     @Test
-    void exhaustedDbStockRollsBackTheGrant() {
-        //DB账本扣不动时必须整体回滚(券也不能留),经重试进入死信后回补名额
-        when(couponMapper.deductStock(10L)).thenReturn(0);
+    void persistenceFailurePropagatesForBrokerRetry() {
+        when(terminalService.settle(message())).thenThrow(new IllegalStateException("db down"));
 
         assertThrows(IllegalStateException.class, () -> consumer.onMessage(message()));
+        verify(ledger, never()).cleanup(message());
     }
 }

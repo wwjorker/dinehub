@@ -2,32 +2,34 @@ package com.dinehub.service.impl;
 
 import com.dinehub.dto.CouponDTO;
 import com.dinehub.entity.Coupon;
+import com.dinehub.entity.SeckillRequest;
 import com.dinehub.exception.SeckillBusinessException;
 import com.dinehub.mapper.CouponMapper;
 import com.dinehub.mapper.UserCouponMapper;
 import com.dinehub.mq.SeckillMessage;
+import com.dinehub.seckill.SeckillMessagePublisher;
+import com.dinehub.seckill.SeckillRedisLedger;
+import com.dinehub.seckill.SeckillTerminalService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
-import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
+import java.time.Duration;
 import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -45,7 +47,11 @@ class CouponServiceImplTest {
     @Mock
     private StringRedisTemplate stringRedisTemplate;
     @Mock
-    private RabbitTemplate rabbitTemplate;
+    private SeckillRedisLedger seckillRedisLedger;
+    @Mock
+    private SeckillMessagePublisher seckillMessagePublisher;
+    @Mock
+    private SeckillTerminalService seckillTerminalService;
 
     @InjectMocks
     private CouponServiceImpl couponService;
@@ -104,32 +110,32 @@ class CouponServiceImplTest {
     @Test
     void grantedSeckillSendsAsyncMessage() {
         when(couponMapper.getById(10L)).thenReturn(publishedCoupon());
-        when(stringRedisTemplate.execute(any(RedisScript.class), anyList(), any()))
+        when(seckillRedisLedger.admit(eq(10L), eq(1L), any(), any(Duration.class)))
                 .thenReturn(CouponServiceImpl.SECKILL_GRANTED);
 
         couponService.seckill(10L, 1L);
 
-        verify(rabbitTemplate).convertAndSend(anyString(), anyString(), any(SeckillMessage.class));
+        verify(seckillMessagePublisher).publish(any(SeckillMessage.class));
     }
 
     @Test
     void soldOutSeckillDoesNotSendMessage() {
         when(couponMapper.getById(10L)).thenReturn(publishedCoupon());
-        when(stringRedisTemplate.execute(any(RedisScript.class), anyList(), any()))
+        when(seckillRedisLedger.admit(eq(10L), eq(1L), any(), any(Duration.class)))
                 .thenReturn(CouponServiceImpl.SECKILL_SOLD_OUT);
 
         assertThrows(SeckillBusinessException.class, () -> couponService.seckill(10L, 1L));
-        verify(rabbitTemplate, never()).convertAndSend(anyString(), anyString(), any(SeckillMessage.class));
+        verify(seckillMessagePublisher, never()).publish(any(SeckillMessage.class));
     }
 
     @Test
     void duplicateUserSeckillIsRejected() {
         when(couponMapper.getById(10L)).thenReturn(publishedCoupon());
-        when(stringRedisTemplate.execute(any(RedisScript.class), anyList(), any()))
+        when(seckillRedisLedger.admit(eq(10L), eq(1L), any(), any(Duration.class)))
                 .thenReturn(CouponServiceImpl.SECKILL_DUPLICATE);
 
         assertThrows(SeckillBusinessException.class, () -> couponService.seckill(10L, 1L));
-        verify(rabbitTemplate, never()).convertAndSend(anyString(), anyString(), any(SeckillMessage.class));
+        verify(seckillMessagePublisher, never()).publish(any(SeckillMessage.class));
     }
 
     @Test
@@ -141,7 +147,7 @@ class CouponServiceImplTest {
         couponService.seckill(10L, 1L);
 
         verify(userCouponMapper).insert(any());
-        verify(rabbitTemplate, never()).convertAndSend(anyString(), anyString(), any(SeckillMessage.class));
+        verify(seckillMessagePublisher, never()).publish(any(SeckillMessage.class));
     }
 
     @Test
@@ -211,22 +217,36 @@ class CouponServiceImplTest {
     }
 
     @Test
-    void sendFailureCompensatesTheSlot() {
+    void sendFailureLeavesRecoverablePendingRequest() {
         when(couponMapper.getById(10L)).thenReturn(publishedCoupon());
-        //准入脚本:单个vararg参数
-        when(stringRedisTemplate.execute(any(RedisScript.class), anyList(), any()))
+        when(seckillRedisLedger.admit(eq(10L), eq(1L), any(), any(Duration.class)))
                 .thenReturn(CouponServiceImpl.SECKILL_GRANTED);
-        org.mockito.Mockito.doThrow(new RuntimeException("broker down"))
-                .when(rabbitTemplate).convertAndSend(anyString(), anyString(), any(SeckillMessage.class));
+        when(seckillMessagePublisher.publish(any(SeckillMessage.class))).thenReturn(false);
 
-        assertThrows(SeckillBusinessException.class, () -> couponService.seckill(10L, 1L));
-        //补偿脚本被执行(两个vararg参数:userId + 标记TTL)
-        verify(stringRedisTemplate).execute(any(RedisScript.class), anyList(), any(), any());
+        assertEquals("PENDING", couponService.seckill(10L, 1L).getStatus());
+        verify(seckillMessagePublisher).publish(any(SeckillMessage.class));
     }
 
     @Test
     void listByUserIdDelegatesToMapper() {
         when(userCouponMapper.listByUserId(1L)).thenReturn(Collections.emptyList());
         assertEquals(0, couponService.listByUserId(1L).size());
+    }
+
+    @Test
+    void settledTerminalIsReportedAsSuccess() {
+        when(seckillTerminalService.get("request-1")).thenReturn(SeckillRequest.builder()
+                .requestId("request-1").couponId(10L).userId(1L).status(SeckillRequest.SETTLED).build());
+
+        assertEquals("SUCCESS", couponService.getSeckillResult("request-1", 1L).getStatus());
+    }
+
+    @Test
+    void resultLookupRejectsDifferentUser() {
+        when(seckillTerminalService.get("request-1")).thenReturn(SeckillRequest.builder()
+                .requestId("request-1").couponId(10L).userId(2L).status(SeckillRequest.SETTLED).build());
+
+        assertThrows(SeckillBusinessException.class,
+                () -> couponService.getSeckillResult("request-1", 1L));
     }
 }

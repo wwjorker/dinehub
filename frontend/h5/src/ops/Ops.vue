@@ -180,7 +180,7 @@ body { margin: 0; background: #f3f0ec; font-family: -apple-system, "PingFang SC"
 .wrap { max-width: 960px; margin: 0 auto; padding: 24px 16px 60px; }
 header { display: flex; align-items: baseline; gap: 14px; margin-bottom: 18px; }
 h1 { font-size: 22px; margin: 0; }
-.hint { color: #999; font-size: 13px; }
+.hint { color: #6f6f6f; font-size: 13.5px; }
 .hint a { color: #d43f2f; }
 .card { background: #fff; border-radius: 12px; padding: 18px 20px; margin-bottom: 18px; box-shadow: 0 2px 10px rgba(0,0,0,0.04); }
 .card h2 { font-size: 16px; margin: 0 0 14px; }

@@ -35,3 +35,13 @@ body {
   color: var(--brand);
   font-weight: 600;
 }
+
+/* 桌面端以手机壳宽度居中展示,fixed 组件跟随收窄 */
+#app { max-width: 480px; margin: 0 auto; }
+.van-tabbar--fixed,
+.van-submit-bar,
+.van-popup--bottom {
+  max-width: 480px;
+  left: 50% !important;
+  transform: translateX(-50%);
+}

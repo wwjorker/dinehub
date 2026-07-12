@@ -9,6 +9,7 @@ const grabbing = ref(0)
 const fen2yuan = (fen) => (fen / 100).toFixed(0)
 
 function phase(c) {
+  if (c.remainingStock <= 0) return 'soldout'
   const now = Date.now()
   if (new Date(c.seckillStartTime).getTime() > now) return 'pending'
   if (new Date(c.seckillEndTime).getTime() < now) return 'ended'
@@ -55,6 +56,7 @@ onMounted(load)
       <div class="right">
         <van-button v-if="phase(c) === 'live'" type="danger" size="small" round
           :loading="grabbing === c.id" @click="grab(c)">立即抢</van-button>
+        <van-tag v-else-if="phase(c) === 'soldout'" type="default">已抢完</van-tag>
         <van-tag v-else-if="phase(c) === 'pending'" type="warning">未开始</van-tag>
         <van-tag v-else type="default">已结束</van-tag>
       </div>

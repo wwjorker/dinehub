@@ -83,7 +83,9 @@ onMounted(load)
         <van-field v-model="remark" label="备注" placeholder="口味偏好、忌口等(选填)" maxlength="50" />
       </div>
 
-      <van-submit-bar :price="Math.round(Number(total) * 100)" button-text="提交订单"
+      <van-submit-bar :price="Math.round(Number(total) * 100)"
+        :button-text="store.tableToken ? '提交订单' : '请先扫码绑定桌台'"
+        :disabled="!store.tableToken"
         :loading="submitting" @submit="submit" style="bottom: 50px">
         <template #tip>
           <span v-if="store.tableName">堂食 · 桌台 {{ store.tableName }}</span>

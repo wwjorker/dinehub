@@ -13,6 +13,7 @@ import java.util.Collections;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -55,7 +56,7 @@ class WebSocketTicketServiceTest {
         assertNull(service.consume("short"));
 
         String ticket = "12345678-1234-1234-1234-123456789012";
-        when(redisTemplate.execute(any(RedisScript.class), any(List.class))).thenReturn(null);
+        when(redisTemplate.execute(any(RedisScript.class), anyList())).thenReturn(null);
         assertNull(service.consume(ticket));
     }
 }

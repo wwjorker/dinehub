@@ -1,6 +1,13 @@
 # Production profile: no fallback secrets. Every placeholder below has no
 # default on purpose; a missing environment variable fails startup instead
 # of silently running on publicly known development keys.
+spring:
+  rabbitmq:
+    host: ${DINEHUB_MQ_HOST}
+    port: ${DINEHUB_MQ_PORT:5672}
+    username: ${DINEHUB_MQ_USERNAME}
+    password: ${DINEHUB_MQ_PASSWORD}
+
 dinehub:
   jwt:
     admin-secret-key: ${DINEHUB_JWT_ADMIN_SECRET}

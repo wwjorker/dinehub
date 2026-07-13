@@ -15,6 +15,7 @@ import com.dinehub.mapper.DiningTableMapper;
 import com.dinehub.mapper.OrderDetailMapper;
 import com.dinehub.mapper.OrderMapper;
 import com.dinehub.mapper.ShoppingCartMapper;
+import com.dinehub.utils.WeChatPayUtil;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.junit.jupiter.api.AfterEach;
@@ -58,6 +59,8 @@ class OrderServiceImplTest {
     private RabbitTemplate rabbitTemplate;
     @Mock
     private com.dinehub.properties.WeChatProperties weChatProperties;
+    @Mock
+    private WeChatPayUtil weChatPayUtil;
 
     @InjectMocks
     private OrderServiceImpl orderService;
@@ -232,9 +235,48 @@ class OrderServiceImplTest {
         when(orderMapper.markPaidIfPending(anyLong(), any())).thenReturn(0);
         when(orderMapper.markRefundPendingIfCancelled(9L)).thenReturn(1);
 
-        assertEquals(com.dinehub.service.OrderService.PayCallbackResult.LATE_REFUNDED,
+        assertEquals(com.dinehub.service.OrderService.PayCallbackResult.LATE_REFUND_PENDING,
                 orderService.paySuccess("N9", 3600));
         verify(orderMapper).markRefunded(9L);
+    }
+
+    @Test
+    void processingRefundRemainsPending() throws Exception {
+        Orders paid = Orders.builder().id(9L).number("N9").payStatus(Orders.REFUND_PENDING)
+                .amount(new BigDecimal("36.00")).build();
+        when(weChatProperties.getApiV3Key()).thenReturn("configured");
+        when(weChatPayUtil.queryRefund("RN9")).thenReturn(WeChatPayUtil.RefundStatus.NOT_FOUND);
+        when(weChatPayUtil.refund("N9", "RN9", paid.getAmount(), paid.getAmount()))
+                .thenReturn(WeChatPayUtil.RefundStatus.PROCESSING);
+
+        orderService.executeRefund(paid);
+
+        verify(orderMapper, never()).markRefunded(anyLong());
+    }
+
+    @Test
+    void onlySuccessfulRefundIsMarkedCompleted() throws Exception {
+        Orders paid = Orders.builder().id(9L).number("N9").payStatus(Orders.REFUND_PENDING)
+                .amount(new BigDecimal("36.00")).build();
+        when(weChatProperties.getApiV3Key()).thenReturn("configured");
+        when(weChatPayUtil.queryRefund("RN9")).thenReturn(WeChatPayUtil.RefundStatus.SUCCESS);
+
+        orderService.executeRefund(paid);
+
+        verify(orderMapper).markRefunded(9L);
+        verify(weChatPayUtil, never()).refund(anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void unknownRefundResultRemainsPending() throws Exception {
+        Orders paid = Orders.builder().id(9L).number("N9").payStatus(Orders.REFUND_PENDING)
+                .amount(new BigDecimal("36.00")).build();
+        when(weChatProperties.getApiV3Key()).thenReturn("configured");
+        when(weChatPayUtil.queryRefund("RN9")).thenThrow(new java.io.IOException("timeout"));
+
+        orderService.executeRefund(paid);
+
+        verify(orderMapper, never()).markRefunded(anyLong());
     }
 
     @Test

@@ -14,6 +14,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.UUID;
+import java.util.ArrayList;
+import java.util.List;
 
 @Component
 public class SeckillRedisLedger {
@@ -36,6 +38,8 @@ public class SeckillRedisLedger {
     private final DefaultRedisScript<Long> terminalBeginScript;
     private final DefaultRedisScript<Long> terminalEndScript;
     private final DefaultRedisScript<Long> unlockScript;
+    private final DefaultRedisScript<Long> renewLockScript;
+    private final DefaultRedisScript<Long> rebuildCommitScript;
 
     public SeckillRedisLedger(StringRedisTemplate redisTemplate, SeckillMetrics metrics) {
         this.redisTemplate = redisTemplate;
@@ -48,6 +52,8 @@ public class SeckillRedisLedger {
         this.terminalBeginScript = script("lua/seckill_terminal_begin.lua");
         this.terminalEndScript = script("lua/seckill_terminal_end.lua");
         this.unlockScript = script("lua/seckill_unlock.lua");
+        this.renewLockScript = script("lua/seckill_renew_lock.lua");
+        this.rebuildCommitScript = script("lua/seckill_rebuild_commit.lua");
     }
 
     private DefaultRedisScript<Long> script(String location) {
@@ -154,6 +160,51 @@ public class SeckillRedisLedger {
 
     public void releaseRebuildLock(Long couponId, String token) {
         redisTemplate.execute(unlockScript, Collections.singletonList(rebuildLockKey(couponId)), token);
+    }
+
+    public boolean renewRebuildLock(Long couponId, String token, Duration ttl) {
+        Long result = redisTemplate.execute(renewLockScript,
+                Collections.singletonList(rebuildLockKey(couponId)), token,
+                String.valueOf(Math.max(1L, ttl.toMillis())));
+        return result != null && result == 1L;
+    }
+
+    /**
+     * Builds the potentially large bought-user snapshot under a temporary key,
+     * then atomically verifies the lock token and swaps stock/bought together.
+     * A stale rebuild owner can never publish its snapshot.
+     */
+    public boolean replaceLedgerIfLockOwned(Long couponId, String token, int available,
+                                            Set<Long> protectedUsers, Duration ttl, Duration lease) {
+        String snapshotKey = "seckill:rebuild:snapshot:" + couponId + ":" + token;
+        redisTemplate.delete(snapshotKey);
+        try {
+            if (protectedUsers != null && !protectedUsers.isEmpty()) {
+                List<String> members = new ArrayList<>(protectedUsers.size());
+                for (Long userId : protectedUsers) {
+                    members.add(String.valueOf(userId));
+                    if (members.size() == 1000) {
+                        redisTemplate.opsForSet().add(snapshotKey, members.toArray(new String[0]));
+                        redisTemplate.expire(snapshotKey, ttl);
+                        members.clear();
+                    }
+                }
+                if (!members.isEmpty()) {
+                    redisTemplate.opsForSet().add(snapshotKey, members.toArray(new String[0]));
+                    redisTemplate.expire(snapshotKey, ttl);
+                }
+            }
+            if (!renewRebuildLock(couponId, token, lease)) {
+                return false;
+            }
+            Long result = redisTemplate.execute(rebuildCommitScript,
+                    Arrays.asList(rebuildLockKey(couponId), stockKey(couponId),
+                            boughtKey(couponId), snapshotKey),
+                    token, String.valueOf(available), String.valueOf(Math.max(1L, ttl.getSeconds())));
+            return result != null && result == 1L;
+        } finally {
+            redisTemplate.delete(snapshotKey);
+        }
     }
 
     public Set<String> allActiveRequestIds(Long couponId) {

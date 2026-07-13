@@ -2,6 +2,7 @@ package com.dinehub.integration;
 
 import com.dinehub.config.RabbitMQConfiguration;
 import com.dinehub.entity.SeckillRequest;
+import com.dinehub.entity.Orders;
 import com.dinehub.mapper.OrderMapper;
 import com.dinehub.mq.SeckillMessage;
 import com.dinehub.mq.SeckillOrderConsumer;
@@ -21,6 +22,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.flywaydb.core.Flyway;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.containers.RabbitMQContainer;
@@ -30,9 +32,14 @@ import org.testcontainers.utility.DockerImageName;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.Statement;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import java.util.Collections;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -40,7 +47,9 @@ import java.util.concurrent.Future;
 import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK,
@@ -116,11 +125,31 @@ class DineHubInfrastructureIntegrationTest {
                 "select version from flyway_schema_history where version is not null order by installed_rank desc limit 1",
                 String.class);
 
-        assertEquals(8, migrations);
-        assertEquals("8", latest);
+        assertEquals(9, migrations);
+        assertEquals("9", latest);
         assertEquals(1, jdbc.queryForObject(
                 "select count(*) from information_schema.tables where table_schema = database() and table_name = 'seckill_request'",
                 Integer.class));
+        String devAdminHash = jdbc.queryForObject("select password from employee where username='admin'", String.class);
+        assertTrue(devAdminHash != null && devAdminHash.startsWith("$2"));
+        assertFalse("$2a$10$guUgfBracBiCkF7VvcNm6OWu0PE./m22dBTxW2g.XfWO6zsS4VaIS".equals(devAdminHash));
+    }
+
+    @Test
+    void freshCommonMigrationsDoNotLeaveTheKnownAdministrator() throws Exception {
+        String database = "prod_probe";
+        jdbc.execute("drop database if exists " + database);
+        jdbc.execute("create database " + database + " character set utf8mb4 collate utf8mb4_unicode_ci");
+        String url = "jdbc:mysql://" + MYSQL.getHost() + ":" + MYSQL.getMappedPort(3306) + "/" + database
+                + "?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai";
+        Flyway.configure().dataSource(url, "root", MYSQL.getPassword())
+                .locations("classpath:db/migration").load().migrate();
+        try (Connection connection = DriverManager.getConnection(url, "root", MYSQL.getPassword());
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("select count(*) from employee where username='admin'")) {
+            assertTrue(result.next());
+            assertEquals(0, result.getInt(1));
+        }
     }
 
     @Test
@@ -160,6 +189,64 @@ class DineHubInfrastructureIntegrationTest {
         assertEquals(Integer.valueOf(1), ledger.availableStock(couponId));
         assertEquals(SeckillRequest.COMPENSATED, terminalStatus(message.getRequestId()));
         assertEquals(0, holderCount(couponId));
+    }
+
+    @Test
+    void staleDbCompensationRecoversAfterRedisRequestLedgerLoss() {
+        long couponId = createCoupon(1);
+        SeckillMessage message = admit(couponId, 91006L);
+        LocalDateTime old = LocalDateTime.now().minusMinutes(10);
+        jdbc.update("insert into seckill_request(request_id,coupon_id,user_id,status,last_error,create_time,update_time)" +
+                        " values(?,?,?,2,'interrupted',?,?)",
+                message.getRequestId(), couponId, message.getUserId(), Timestamp.valueOf(old), Timestamp.valueOf(old));
+        redis.delete(SeckillRedisLedger.requestKey(message.getRequestId()));
+        redis.opsForZSet().remove(SeckillRedisLedger.activeKey(couponId), message.getRequestId());
+
+        reliabilityTask.recoverDueRequests();
+
+        assertEquals(SeckillRequest.COMPENSATED, terminalStatus(message.getRequestId()));
+        assertEquals(Integer.valueOf(1), ledger.availableStock(couponId));
+        assertFalse(ledger.isUserProtected(couponId, message.getUserId()));
+        assertEquals(0, holderCount(couponId));
+        assertEquals(1, dbStock(couponId));
+    }
+
+    @Test
+    void staleDbCompensationDoesNotRecreateExpiredStock() {
+        long couponId = createCoupon(1);
+        SeckillMessage message = admit(couponId, 91007L);
+        LocalDateTime old = LocalDateTime.now().minusMinutes(10);
+        jdbc.update("insert into seckill_request(request_id,coupon_id,user_id,status,last_error,create_time,update_time)" +
+                        " values(?,?,?,2,'interrupted',?,?)",
+                message.getRequestId(), couponId, message.getUserId(), Timestamp.valueOf(old), Timestamp.valueOf(old));
+        redis.delete(SeckillRedisLedger.requestKey(message.getRequestId()));
+        redis.delete(SeckillRedisLedger.activeKey(couponId));
+        redis.delete(SeckillRedisLedger.stockKey(couponId));
+        redis.delete(SeckillRedisLedger.boughtKey(couponId));
+
+        reliabilityTask.recoverDueRequests();
+
+        assertEquals(SeckillRequest.COMPENSATED, terminalStatus(message.getRequestId()));
+        assertNull(ledger.availableStock(couponId));
+        assertEquals(1, dbStock(couponId));
+    }
+
+    @Test
+    void expiredRebuildOwnerCannotOverwriteCurrentLedger() throws Exception {
+        long couponId = createCoupon(4);
+        String staleToken = ledger.acquireRebuildLock(couponId, Duration.ofMillis(100));
+        assertNotNull(staleToken);
+        Thread.sleep(200L);
+        String currentToken = ledger.acquireRebuildLock(couponId, Duration.ofSeconds(30));
+        assertNotNull(currentToken);
+        try {
+            assertFalse(ledger.replaceLedgerIfLockOwned(couponId, staleToken, 99,
+                    Collections.singleton(99999L), Duration.ofHours(1), Duration.ofSeconds(30)));
+            assertEquals(Integer.valueOf(4), ledger.availableStock(couponId));
+            assertFalse(ledger.isUserProtected(couponId, 99999L));
+        } finally {
+            ledger.releaseRebuildLock(couponId, currentToken);
+        }
     }
 
     @Test
@@ -234,6 +321,41 @@ class DineHubInfrastructureIntegrationTest {
         pool.shutdownNow();
         Integer status = jdbc.queryForObject("select status from orders where id = ?", Integer.class, orderId);
         assertTrue(status == 2 || status == 6);
+    }
+
+    @Test
+    void autoCompletionAndCancellationCannotBothWin() throws Exception {
+        String number = "IT" + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
+        jdbc.update("insert into orders(number, status, fulfillment_type, user_id, address_book_id, order_time," +
+                        " pay_method, pay_status, amount, delivery_status, tableware_status)" +
+                        " values(?, 4, 2, ?, null, now(), 1, 1, ?, 1, 1)",
+                number, 92002L, new BigDecimal("10.00"));
+        Long orderId = jdbc.queryForObject("select id from orders where number = ?", Long.class, number);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        Future<Integer> completed = pool.submit(() -> {
+            start.await();
+            return orderMapper.transitionStatus(Orders.builder().id(orderId).status(Orders.COMPLETED)
+                    .deliveryTime(LocalDateTime.now()).build(), Orders.DELIVERY_IN_PROGRESS);
+        });
+        Future<Integer> cancelled = pool.submit(() -> {
+            start.await();
+            return orderMapper.transitionStatus(Orders.builder().id(orderId).status(Orders.CANCELLED)
+                    .payStatus(Orders.REFUND_PENDING).cancelTime(LocalDateTime.now()).build(),
+                    Orders.DELIVERY_IN_PROGRESS);
+        });
+        start.countDown();
+
+        assertEquals(1, completed.get() + cancelled.get());
+        pool.shutdownNow();
+        Integer status = jdbc.queryForObject("select status from orders where id = ?", Integer.class, orderId);
+        Integer payStatus = jdbc.queryForObject("select pay_status from orders where id = ?", Integer.class, orderId);
+        assertTrue(status == Orders.COMPLETED || status == Orders.CANCELLED);
+        if (status == Orders.COMPLETED) {
+            assertEquals(Orders.PAID, payStatus);
+        } else {
+            assertEquals(Orders.REFUND_PENDING, payStatus);
+        }
     }
 
     private long createCoupon(int stock) {

@@ -34,6 +34,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -123,7 +124,8 @@ public class CouponServiceImpl implements CouponService {
         if (!Coupon.STATUS_PUBLISHED.equals(coupon.getStatus())) {
             throw new SeckillBusinessException(MessageConstant.COUPON_NOT_PUBLISHED);
         }
-        String lockToken = seckillRedisLedger.acquireRebuildLock(id, Duration.ofSeconds(30));
+        Duration rebuildLease = Duration.ofSeconds(60);
+        String lockToken = seckillRedisLedger.acquireRebuildLock(id, rebuildLease);
         if (lockToken == null) {
             throw new SeckillBusinessException(MessageConstant.SECKILL_BUSY);
         }
@@ -134,15 +136,20 @@ public class CouponServiceImpl implements CouponService {
             Set<String> activeRequestIds = seckillRedisLedger.allActiveRequestIds(id);
             Coupon current = couponMapper.getById(id);
             Set<Long> protectedUsers = new LinkedHashSet<>(userCouponMapper.listUserIdsByCouponId(id));
+            Map<String, SeckillRequest> terminals = seckillTerminalService.getAll(activeRequestIds);
             int activeReservations = 0;
             for (String requestId : activeRequestIds) {
                 PendingRequest pending = seckillRedisLedger.get(requestId);
                 if (pending == null || !Objects.equals(id, pending.getCouponId())) {
                     throw new IllegalStateException("incomplete active ledger for request " + requestId);
                 }
-                SeckillRequest terminal = seckillTerminalService.get(requestId);
+                SeckillRequest terminal = terminals.get(requestId);
                 if (terminal != null && (SeckillRequest.SETTLED.equals(terminal.getStatus())
                         || SeckillRequest.COMPENSATED.equals(terminal.getStatus()))) {
+                    if (!Objects.equals(id, terminal.getCouponId())
+                            || !Objects.equals(pending.getUserId(), terminal.getUserId())) {
+                        throw new IllegalStateException("terminal identity mismatch for request " + requestId);
+                    }
                     seckillRedisLedger.cleanup(pending.toMessage());
                     continue;
                 }
@@ -156,7 +163,11 @@ public class CouponServiceImpl implements CouponService {
             if (available < 0) {
                 throw new IllegalStateException("active reservations exceed DB stock for coupon " + id);
             }
-            writeRedisLedger(current, available, protectedUsers);
+            Duration projectionTtl = ledgerTtl(current);
+            if (!seckillRedisLedger.replaceLedgerIfLockOwned(id, lockToken, available,
+                    protectedUsers, projectionTtl, rebuildLease)) {
+                throw new SeckillBusinessException(MessageConstant.SECKILL_BUSY);
+            }
             log.info("seckill cache rebuilt for coupon {}: available={}, active={}",
                     id, available, activeReservations);
         } finally {
@@ -182,12 +193,14 @@ public class CouponServiceImpl implements CouponService {
             String[] members = protectedUsers.stream().map(String::valueOf).toArray(String[]::new);
             stringRedisTemplate.opsForSet().add(boughtKey, members);
         }
-        Duration ttl = Duration.between(LocalDateTime.now(), coupon.getSeckillEndTime()).plus(KEY_TTL_MARGIN);
-        if (ttl.isNegative() || ttl.isZero()) {
-            ttl = Duration.ofHours(1);
-        }
+        Duration ttl = ledgerTtl(coupon);
         stringRedisTemplate.expire(stockKey, ttl);
         stringRedisTemplate.expire(boughtKey, ttl);
+    }
+
+    private Duration ledgerTtl(Coupon coupon) {
+        Duration ttl = Duration.between(LocalDateTime.now(), coupon.getSeckillEndTime()).plus(KEY_TTL_MARGIN);
+        return ttl.isNegative() || ttl.isZero() ? Duration.ofHours(1) : ttl;
     }
 
     public SeckillTicketVO seckill(Long couponId, Long userId) {

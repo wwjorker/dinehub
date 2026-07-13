@@ -2,6 +2,7 @@ package com.dinehub.task;
 
 import com.dinehub.entity.SeckillRequest;
 import com.dinehub.mapper.CouponMapper;
+import com.dinehub.mapper.SeckillRequestMapper;
 import com.dinehub.mq.SeckillMessage;
 import com.dinehub.seckill.SeckillCompensationService;
 import com.dinehub.seckill.SeckillMessagePublisher;
@@ -16,6 +17,8 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 /**
  * Low-frequency recovery for unknown confirms, lost callbacks and consumer stalls.
@@ -29,21 +32,26 @@ public class SeckillReliabilityTask {
     private final SeckillTerminalService terminalService;
     private final SeckillMessagePublisher publisher;
     private final SeckillCompensationService compensationService;
+    private final SeckillRequestMapper requestMapper;
 
     @Value("${dinehub.seckill.max-publish-attempts:10}")
     private int maxAttempts;
     @Value("${dinehub.seckill.max-pending-millis:1800000}")
     private long maxPendingMillis;
+    @Value("${dinehub.seckill.compensation-stale-millis:120000}")
+    private long compensationStaleMillis;
 
     public SeckillReliabilityTask(CouponMapper couponMapper, SeckillRedisLedger ledger,
                                    SeckillTerminalService terminalService,
                                    SeckillMessagePublisher publisher,
-                                   SeckillCompensationService compensationService) {
+                                   SeckillCompensationService compensationService,
+                                   SeckillRequestMapper requestMapper) {
         this.couponMapper = couponMapper;
         this.ledger = ledger;
         this.terminalService = terminalService;
         this.publisher = publisher;
         this.compensationService = compensationService;
+        this.requestMapper = requestMapper;
     }
 
     @Scheduled(fixedDelayString = "${dinehub.seckill.scan-interval-millis:60000}")
@@ -58,6 +66,24 @@ public class SeckillReliabilityTask {
                 } catch (RuntimeException ex) {
                     log.error("seckill recovery failed, requestId={}", requestId, ex);
                 }
+            }
+        }
+        recoverStaleCompensations();
+    }
+
+    private void recoverStaleCompensations() {
+        LocalDateTime before = LocalDateTime.now().minusNanos(compensationStaleMillis * 1_000_000L);
+        for (SeckillRequest request : requestMapper.listStaleCompensating(before, 200)) {
+            SeckillMessage message = SeckillMessage.builder()
+                    .requestId(request.getRequestId())
+                    .couponId(request.getCouponId())
+                    .userId(request.getUserId())
+                    .admittedAt(request.getCreateTime().atZone(ZoneId.systemDefault()).toInstant().toEpochMilli())
+                    .build();
+            try {
+                compensationService.compensate(message, "recover stale DB compensation");
+            } catch (RuntimeException ex) {
+                log.error("stale DB compensation recovery failed, requestId={}", request.getRequestId(), ex);
             }
         }
     }

@@ -129,6 +129,7 @@ dinehub:
     scan-interval-millis: ${DINEHUB_SECKILL_SCAN_INTERVAL_MILLIS:60000}
     max-publish-attempts: ${DINEHUB_SECKILL_MAX_ATTEMPTS:10}
     max-pending-millis: ${DINEHUB_SECKILL_MAX_PENDING_MILLIS:1800000}
+    compensation-stale-millis: ${DINEHUB_SECKILL_COMPENSATION_STALE_MILLIS:120000}
   scan-order:
     # URL encoded into each table's QR code; points at the dine-in H5 entry
     h5-base-url: ${DINEHUB_H5_BASE_URL:http://localhost:8080/h5/index.html}

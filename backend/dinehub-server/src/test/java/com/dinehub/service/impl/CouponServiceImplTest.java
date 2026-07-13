@@ -196,26 +196,23 @@ class CouponServiceImplTest {
 
     @Test
     void rebuildCacheReloadsLedgerFromDb() {
-        ValueOperations<String, String> valueOps = mock(ValueOperations.class);
-        when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
         when(couponMapper.getById(10L)).thenReturn(publishedCoupon());
         when(userCouponMapper.listUserIdsByCouponId(10L)).thenReturn(Collections.emptyList());
         when(seckillRedisLedger.acquireRebuildLock(eq(10L), any(Duration.class))).thenReturn("lock");
         when(seckillRedisLedger.awaitTerminalQuiescence(eq(10L), any(Duration.class))).thenReturn(true);
         when(seckillRedisLedger.allActiveRequestIds(10L)).thenReturn(Collections.emptySet());
+        when(seckillRedisLedger.replaceLedgerIfLockOwned(eq(10L), eq("lock"), eq(100),
+                eq(Collections.emptySet()), any(Duration.class), any(Duration.class))).thenReturn(true);
 
         couponService.rebuildSeckillCache(10L);
 
-        verify(valueOps).set(eq(CouponServiceImpl.STOCK_KEY_PREFIX + 10L), eq("100"));
+        verify(seckillRedisLedger).replaceLedgerIfLockOwned(eq(10L), eq("lock"), eq(100),
+                eq(Collections.emptySet()), any(Duration.class), any(Duration.class));
         verify(couponMapper, never()).publishIfDraft(10L);
     }
 
     @Test
     void rebuildSubtractsActiveReservationAndProtectsItsUser() {
-        ValueOperations<String, String> valueOps = mock(ValueOperations.class);
-        SetOperations<String, String> setOps = mock(SetOperations.class);
-        when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
-        when(stringRedisTemplate.opsForSet()).thenReturn(setOps);
         when(couponMapper.getById(10L)).thenReturn(publishedCoupon());
         when(userCouponMapper.listUserIdsByCouponId(10L)).thenReturn(Collections.singletonList(1L));
         when(seckillRedisLedger.acquireRebuildLock(eq(10L), any(Duration.class))).thenReturn("lock");
@@ -224,11 +221,15 @@ class CouponServiceImplTest {
         when(seckillRedisLedger.get("request-1")).thenReturn(SeckillRedisLedger.PendingRequest.builder()
                 .requestId("request-1").couponId(10L).userId(2L).status("PUBLISHED")
                 .attempt(1).createdAt(1L).build());
+        when(seckillRedisLedger.replaceLedgerIfLockOwned(eq(10L), eq("lock"), eq(99),
+                eq(new java.util.LinkedHashSet<>(java.util.Arrays.asList(1L, 2L))),
+                any(Duration.class), any(Duration.class))).thenReturn(true);
 
         couponService.rebuildSeckillCache(10L);
 
-        verify(valueOps).set(eq(CouponServiceImpl.STOCK_KEY_PREFIX + 10L), eq("99"));
-        verify(setOps).add(eq(CouponServiceImpl.BOUGHT_KEY_PREFIX + 10L), eq("1"), eq("2"));
+        verify(seckillRedisLedger).replaceLedgerIfLockOwned(eq(10L), eq("lock"), eq(99),
+                eq(new java.util.LinkedHashSet<>(java.util.Arrays.asList(1L, 2L))),
+                any(Duration.class), any(Duration.class));
         verify(seckillRedisLedger).releaseRebuildLock(10L, "lock");
     }
 

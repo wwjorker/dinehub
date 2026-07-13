@@ -28,9 +28,9 @@ public interface OrderService {
      */
     /**
      * 支付回调处理结果,决定给微信的应答:
-     * CONFIRMED/LATE_REFUNDED 确认消费;REJECTED 拒绝,等待微信重发并人工介入
+     * CONFIRMED/LATE_REFUND_PENDING 确认消费;REJECTED 拒绝,等待微信重发并人工介入
      */
-    enum PayCallbackResult { CONFIRMED, LATE_REFUNDED, REJECTED }
+    enum PayCallbackResult { CONFIRMED, LATE_REFUND_PENDING, REJECTED }
 
     PayCallbackResult paySuccess(String outTradeNo, Integer payerTotalFen);
 

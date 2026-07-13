@@ -67,8 +67,15 @@ public class OrderTask {
 
         if (ordersList != null && ordersList.size() > 0) {
             for (Orders orders : ordersList) {
-                orders.setStatus(Orders.COMPLETED);
-                orderMapper.update(orders);
+                Orders target = Orders.builder()
+                        .id(orders.getId())
+                        .status(Orders.COMPLETED)
+                        .deliveryTime(LocalDateTime.now())
+                        .build();
+                int rows = orderMapper.transitionStatus(target, Orders.DELIVERY_IN_PROGRESS);
+                if (rows == 0) {
+                    log.info("自动完成放弃,订单状态已并发变化: {}", orders.getId());
+                }
             }
         }
     }

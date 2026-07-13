@@ -19,7 +19,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.security.PrivateKey;
 import java.security.Signature;
@@ -49,27 +49,19 @@ public class WeChatPayUtil {
      *
      * @return
      */
-    private CloseableHttpClient getClient() {
-        PrivateKey merchantPrivateKey = null;
-        try {
-            //merchantPrivateKey商户API私钥，如何加载商户API私钥请看常见问题
-            merchantPrivateKey = PemUtil.loadPrivateKey(new FileInputStream(new File(weChatProperties.getPrivateKeyFilePath())));
-            //加载平台证书文件
-            X509Certificate x509Certificate = PemUtil.loadCertificate(new FileInputStream(new File(weChatProperties.getWeChatPayCertFilePath())));
-            //wechatPayCertificates微信支付平台证书列表。你也可以使用后面章节提到的“定时更新平台证书功能”，而不需要关心平台证书的来龙去脉
-            List<X509Certificate> wechatPayCertificates = Arrays.asList(x509Certificate);
-
-            WechatPayHttpClientBuilder builder = WechatPayHttpClientBuilder.create()
-                    .withMerchant(weChatProperties.getMchid(), weChatProperties.getMchSerialNo(), merchantPrivateKey)
-                    .withWechatPay(wechatPayCertificates);
-
-            // 通过WechatPayHttpClientBuilder构造的HttpClient，会自动的处理签名和验签
-            CloseableHttpClient httpClient = builder.build();
-            return httpClient;
-        } catch (FileNotFoundException e) {
-            e.printStackTrace();
-            return null;
+    private CloseableHttpClient getClient() throws IOException {
+        PrivateKey merchantPrivateKey;
+        X509Certificate x509Certificate;
+        try (FileInputStream merchantKey = new FileInputStream(new File(weChatProperties.getPrivateKeyFilePath()));
+             FileInputStream platformCert = new FileInputStream(new File(weChatProperties.getWeChatPayCertFilePath()))) {
+            merchantPrivateKey = PemUtil.loadPrivateKey(merchantKey);
+            x509Certificate = PemUtil.loadCertificate(platformCert);
         }
+        List<X509Certificate> wechatPayCertificates = Arrays.asList(x509Certificate);
+        return WechatPayHttpClientBuilder.create()
+                .withMerchant(weChatProperties.getMchid(), weChatProperties.getMchSerialNo(), merchantPrivateKey)
+                .withWechatPay(wechatPayCertificates)
+                .build();
     }
 
     /**
@@ -80,21 +72,14 @@ public class WeChatPayUtil {
      * @return
      */
     private String post(String url, String body) throws Exception {
-        CloseableHttpClient httpClient = getClient();
-
-        HttpPost httpPost = new HttpPost(url);
-        httpPost.addHeader(HttpHeaders.ACCEPT, ContentType.APPLICATION_JSON.toString());
-        httpPost.addHeader(HttpHeaders.CONTENT_TYPE, ContentType.APPLICATION_JSON.toString());
-        httpPost.addHeader("Wechatpay-Serial", weChatProperties.getMchSerialNo());
-        httpPost.setEntity(new StringEntity(body, "UTF-8"));
-
-        CloseableHttpResponse response = httpClient.execute(httpPost);
-        try {
-            String bodyAsString = EntityUtils.toString(response.getEntity());
-            return bodyAsString;
-        } finally {
-            httpClient.close();
-            response.close();
+        HttpPost request = new HttpPost(url);
+        request.addHeader(HttpHeaders.ACCEPT, ContentType.APPLICATION_JSON.toString());
+        request.addHeader(HttpHeaders.CONTENT_TYPE, ContentType.APPLICATION_JSON.toString());
+        request.addHeader("Wechatpay-Serial", weChatProperties.getMchSerialNo());
+        request.setEntity(new StringEntity(body, "UTF-8"));
+        try (CloseableHttpClient httpClient = getClient();
+             CloseableHttpResponse response = httpClient.execute(request)) {
+            return requireSuccess(response);
         }
     }
 
@@ -105,21 +90,23 @@ public class WeChatPayUtil {
      * @return
      */
     private String get(String url) throws Exception {
-        CloseableHttpClient httpClient = getClient();
-
-        HttpGet httpGet = new HttpGet(url);
-        httpGet.addHeader(HttpHeaders.ACCEPT, ContentType.APPLICATION_JSON.toString());
-        httpGet.addHeader(HttpHeaders.CONTENT_TYPE, ContentType.APPLICATION_JSON.toString());
-        httpGet.addHeader("Wechatpay-Serial", weChatProperties.getMchSerialNo());
-
-        CloseableHttpResponse response = httpClient.execute(httpGet);
-        try {
-            String bodyAsString = EntityUtils.toString(response.getEntity());
-            return bodyAsString;
-        } finally {
-            httpClient.close();
-            response.close();
+        HttpGet request = new HttpGet(url);
+        request.addHeader(HttpHeaders.ACCEPT, ContentType.APPLICATION_JSON.toString());
+        request.addHeader(HttpHeaders.CONTENT_TYPE, ContentType.APPLICATION_JSON.toString());
+        request.addHeader("Wechatpay-Serial", weChatProperties.getMchSerialNo());
+        try (CloseableHttpClient httpClient = getClient();
+             CloseableHttpResponse response = httpClient.execute(request)) {
+            return requireSuccess(response);
         }
+    }
+
+    private String requireSuccess(CloseableHttpResponse response) throws IOException {
+        int statusCode = response.getStatusLine().getStatusCode();
+        String responseBody = response.getEntity() == null ? "" : EntityUtils.toString(response.getEntity());
+        if (statusCode < 200 || statusCode >= 300) {
+            throw new WeChatPayHttpException(statusCode);
+        }
+        return responseBody;
     }
 
     /**
@@ -168,8 +155,6 @@ public class WeChatPayUtil {
         String bodyAsString = jsapi(orderNum, total, description, openid);
         //解析返回结果
         JSONObject jsonObject = JSON.parseObject(bodyAsString);
-        System.out.println(jsonObject);
-
         String prepayId = jsonObject.getString("prepay_id");
         if (prepayId != null) {
             String timeStamp = String.valueOf(System.currentTimeMillis() / 1000);
@@ -214,7 +199,7 @@ public class WeChatPayUtil {
      * @param total         原订单金额
      * @return
      */
-    public String refund(String outTradeNo, String outRefundNo, BigDecimal refund, BigDecimal total) throws Exception {
+    public RefundStatus refund(String outTradeNo, String outRefundNo, BigDecimal refund, BigDecimal total) throws Exception {
         JSONObject jsonObject = new JSONObject();
         jsonObject.put("out_trade_no", outTradeNo);
         jsonObject.put("out_refund_no", outRefundNo);
@@ -230,6 +215,52 @@ public class WeChatPayUtil {
         String body = jsonObject.toJSONString();
 
         //调用申请退款接口
-        return post(REFUNDS, body);
+        return parseRefundStatus(post(REFUNDS, body));
+    }
+
+    /**
+     * Querying by the fixed merchant refund number resolves network-unknown
+     * outcomes without creating another refund instruction.
+     */
+    public RefundStatus queryRefund(String outRefundNo) throws Exception {
+        try {
+            return parseRefundStatus(get(REFUNDS + "/" + outRefundNo));
+        } catch (WeChatPayHttpException ex) {
+            if (ex.getStatusCode() == 404) {
+                return RefundStatus.NOT_FOUND;
+            }
+            throw ex;
+        }
+    }
+
+    private RefundStatus parseRefundStatus(String body) throws IOException {
+        try {
+            String status = JSON.parseObject(body).getString("status");
+            if (status == null) {
+                throw new IOException("refund response missing status");
+            }
+            return RefundStatus.valueOf(status);
+        } catch (IllegalArgumentException ex) {
+            throw new IOException("unknown refund status", ex);
+        } catch (RuntimeException ex) {
+            throw new IOException("invalid refund response", ex);
+        }
+    }
+
+    public enum RefundStatus {
+        SUCCESS, PROCESSING, CLOSED, ABNORMAL, NOT_FOUND
+    }
+
+    public static class WeChatPayHttpException extends IOException {
+        private final int statusCode;
+
+        public WeChatPayHttpException(int statusCode) {
+            super("WeChat Pay HTTP status " + statusCode);
+            this.statusCode = statusCode;
+        }
+
+        public int getStatusCode() {
+            return statusCode;
+        }
     }
 }

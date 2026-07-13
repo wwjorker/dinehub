@@ -11,7 +11,14 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 @Service
 public class SeckillTerminalService {
@@ -84,6 +91,21 @@ public class SeckillTerminalService {
 
     public SeckillRequest get(String requestId) {
         return requestMapper.getByRequestId(requestId);
+    }
+
+    public Map<String, SeckillRequest> getAll(Set<String> requestIds) {
+        if (requestIds == null || requestIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, SeckillRequest> result = new LinkedHashMap<>();
+        List<String> ids = new ArrayList<>(requestIds);
+        for (int from = 0; from < ids.size(); from += 500) {
+            Set<String> batch = new LinkedHashSet<>(ids.subList(from, Math.min(from + 500, ids.size())));
+            for (SeckillRequest request : requestMapper.listByRequestIds(batch)) {
+                result.put(request.getRequestId(), request);
+            }
+        }
+        return result;
     }
 
     private SeckillRequest newRequest(SeckillMessage message, Integer status, String error) {

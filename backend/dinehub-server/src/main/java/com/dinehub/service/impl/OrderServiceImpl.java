@@ -332,7 +332,7 @@ public class OrderServiceImpl implements OrderService {
             if (marked > 0) {
                 log.error("late payment on cancelled order {}, refund initiated", outTradeNo);
                 executeRefund(ordersDB);
-                return PayCallbackResult.LATE_REFUNDED;
+                return PayCallbackResult.LATE_REFUND_PENDING;
             }
             log.error("pay callback for order {} in unexpected status {}, rejected",
                     outTradeNo, ordersDB.getStatus());
@@ -362,12 +362,23 @@ public class OrderServiceImpl implements OrderService {
                 orderMapper.markRefunded(order.getId());
                 return;
             }
-            weChatPayUtil.refund(
-                    order.getNumber(),
-                    "R" + order.getNumber(), //固定退款单号,重试幂等
-                    order.getAmount(),
-                    order.getAmount());
-            orderMapper.markRefunded(order.getId());
+            String refundNumber = "R" + order.getNumber();
+            WeChatPayUtil.RefundStatus refundStatus = weChatPayUtil.queryRefund(refundNumber);
+            if (refundStatus == WeChatPayUtil.RefundStatus.NOT_FOUND) {
+                refundStatus = weChatPayUtil.refund(
+                        order.getNumber(),
+                        refundNumber, //固定退款单号,重试幂等
+                        order.getAmount(),
+                        order.getAmount());
+            }
+            if (refundStatus == WeChatPayUtil.RefundStatus.SUCCESS) {
+                orderMapper.markRefunded(order.getId());
+            } else if (refundStatus == WeChatPayUtil.RefundStatus.PROCESSING) {
+                log.info("refund still processing for order {}, kept pending", order.getNumber());
+            } else {
+                log.error("refund status {} for order {}, kept pending for intervention",
+                        refundStatus, order.getNumber());
+            }
         } catch (Exception e) {
             log.error("refund failed for order {}, kept pending for retry", order.getNumber(), e);
         }

@@ -198,7 +198,7 @@ class DineHubInfrastructureIntegrationTest {
         LocalDateTime old = LocalDateTime.now().minusMinutes(10);
         jdbc.update("insert into seckill_request(request_id,coupon_id,user_id,status,last_error,create_time,update_time)" +
                         " values(?,?,?,2,'interrupted',?,?)",
-                message.getRequestId(), couponId, message.getUserId(), Timestamp.valueOf(old), Timestamp.valueOf(old));
+                message.getRequestId(), couponId, message.getUserId(), old, old);
         redis.delete(SeckillRedisLedger.requestKey(message.getRequestId()));
         redis.opsForZSet().remove(SeckillRedisLedger.activeKey(couponId), message.getRequestId());
 
@@ -218,7 +218,7 @@ class DineHubInfrastructureIntegrationTest {
         LocalDateTime old = LocalDateTime.now().minusMinutes(10);
         jdbc.update("insert into seckill_request(request_id,coupon_id,user_id,status,last_error,create_time,update_time)" +
                         " values(?,?,?,2,'interrupted',?,?)",
-                message.getRequestId(), couponId, message.getUserId(), Timestamp.valueOf(old), Timestamp.valueOf(old));
+                message.getRequestId(), couponId, message.getUserId(), old, old);
         redis.delete(SeckillRedisLedger.requestKey(message.getRequestId()));
         redis.delete(SeckillRedisLedger.activeKey(couponId));
         redis.delete(SeckillRedisLedger.stockKey(couponId));

@@ -60,6 +60,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: dinehub-redis
+    command: redis-server --appendonly yes --appendfsync everysec
     ports:
       - "${DINEHUB_REDIS_PORT:-6379}:6379"
     volumes:

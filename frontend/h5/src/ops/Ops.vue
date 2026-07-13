@@ -26,10 +26,16 @@ function toast(t) {
 }
 
 async function req(path, options = {}) {
-  const res = await fetch(path, {
-    ...options,
-    headers: { 'Content-Type': 'application/json', token: token.value, ...options.headers }
-  })
+  let res
+  try {
+    res = await fetch(path, {
+      ...options,
+      headers: { 'Content-Type': 'application/json', token: token.value, ...options.headers }
+    })
+  } catch (_) {
+    toast('网络连接失败，请检查服务是否可用')
+    throw new Error('网络连接失败')
+  }
   if (res.status === 401) {
     token.value = ''
     localStorage.removeItem('dinehub.ops.token')
@@ -123,7 +129,13 @@ async function addTable() {
 
 // 二维码接口在管理端鉴权之后,img 标签带不上 token,用 fetch 转 blob 展示
 async function showQr(t) {
-  const res = await fetch(`/admin/table/qrcode/${t.id}`, { headers: { token: token.value } })
+  let res
+  try {
+    res = await fetch(`/admin/table/qrcode/${t.id}`, { headers: { token: token.value } })
+  } catch (_) {
+    toast('网络连接失败，请检查服务是否可用')
+    throw new Error('网络连接失败')
+  }
   if (res.status === 401) {
     token.value = ''
     localStorage.removeItem('dinehub.ops.token')

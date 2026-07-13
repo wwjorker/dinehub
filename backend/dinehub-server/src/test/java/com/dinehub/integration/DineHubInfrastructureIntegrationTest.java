@@ -65,7 +65,7 @@ class DineHubInfrastructureIntegrationTest {
 
     @Container
     private static final RabbitMQContainer RABBIT = new RabbitMQContainer(
-            DockerImageName.parse("rabbitmq:3.12-management-alpine"));
+            DockerImageName.parse("rabbitmq:4.1-management-alpine"));
 
     @DynamicPropertySource
     static void infrastructure(DynamicPropertyRegistry registry) {

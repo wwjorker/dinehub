@@ -1,5 +1,5 @@
 # Production profile: no fallback secrets. Every placeholder below has no
-# default on purpose — a missing environment variable fails startup instead
+# default on purpose; a missing environment variable fails startup instead
 # of silently running on publicly known development keys.
 dinehub:
   jwt:

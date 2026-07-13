@@ -1,0 +1,10 @@
+.git
+.github
+.agents
+.codex
+LOCAL-*.md
+**/target
+**/node_modules
+*.log
+*.jtl
+scripts

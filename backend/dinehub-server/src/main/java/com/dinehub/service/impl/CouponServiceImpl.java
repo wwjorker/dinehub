@@ -243,7 +243,7 @@ public class CouponServiceImpl implements CouponService {
                 .admittedAt(System.currentTimeMillis())
                 .build();
         seckillMessagePublisher.publish(message);
-        log.info("seckill admitted, requestId={}", requestId);
+        log.debug("seckill admitted, requestId={}", requestId);
         return SeckillTicketVO.builder().requestId(requestId).status("PENDING").build();
     }
 

@@ -1,5 +1,11 @@
 # Local development profile. Credentials come from environment variables with
-# harmless local defaults — never commit real secrets here.
+# harmless local defaults; never commit real secrets here.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+
 dinehub:
   demo-login:
     enabled: ${DINEHUB_DEMO_LOGIN:true}

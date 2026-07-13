@@ -11,6 +11,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/h5/package-lock.json
+      - name: Build frontend and verify checked-in assets
+        working-directory: frontend/h5
+        run: |
+          npm ci
+          npm run build
+          git diff --exit-code -- ../../backend/dinehub-server/src/main/resources/static/h5
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -19,3 +30,18 @@ jobs:
       - name: Build and test
         working-directory: backend
         run: ./mvnw -B clean verify
+      - name: Verify container tests were not skipped
+        working-directory: backend
+        run: |
+          python - <<'PY'
+          import glob
+          import xml.etree.ElementTree as ET
+
+          reports = glob.glob('dinehub-server/target/surefire-reports/TEST-*.xml')
+          suites = [ET.parse(path).getroot() for path in reports]
+          tests = sum(int(suite.attrib.get('tests', 0)) for suite in suites)
+          skipped = sum(int(suite.attrib.get('skipped', 0)) for suite in suites)
+          print(f'tests={tests} skipped={skipped}')
+          if tests < 81 or skipped != 0:
+              raise SystemExit('expected at least 81 tests with no skips')
+          PY

@@ -1,9 +1,49 @@
 services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dinehub-app
+    ports:
+      - "${DINEHUB_APP_PORT:-8080}:8080"
+    environment:
+      TZ: Asia/Shanghai
+      SPRING_PROFILES_ACTIVE: dev
+      DINEHUB_DB_HOST: mysql
+      DINEHUB_DB_PORT: 3306
+      DINEHUB_DB_NAME: dinehub
+      DINEHUB_DB_USERNAME: root
+      DINEHUB_DB_PASSWORD: ${DINEHUB_DB_PASSWORD:-root}
+      DINEHUB_REDIS_HOST: redis
+      DINEHUB_REDIS_PORT: 6379
+      DINEHUB_MQ_HOST: rabbitmq
+      DINEHUB_MQ_PORT: 5672
+      DINEHUB_MQ_USERNAME: ${DINEHUB_MQ_USERNAME:-dinehub}
+      DINEHUB_MQ_PASSWORD: ${DINEHUB_MQ_PASSWORD:-dinehub}
+      DINEHUB_RATE_LIMIT_ENABLED: ${DINEHUB_RATE_LIMIT_ENABLED:-true}
+      DINEHUB_SECKILL_MODE: ${DINEHUB_SECKILL_MODE:-redis}
+      DINEHUB_LOG_MAPPER: ${DINEHUB_LOG_MAPPER:-info}
+      DINEHUB_H5_BASE_URL: ${DINEHUB_H5_BASE_URL:-http://localhost:8080/h5/index.html}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:8080/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 15s
+      timeout: 3s
+      start_period: 45s
+      retries: 5
+
   mysql:
     image: mysql:8.0
     container_name: dinehub-mysql
     ports:
-      - "${DINEHUB_DB_PORT:-3306}:3306"
+      - "${DINEHUB_DB_PORT:-3307}:3306"
     environment:
       MYSQL_ROOT_PASSWORD: ${DINEHUB_DB_PASSWORD:-root}
       MYSQL_DATABASE: dinehub
@@ -31,16 +71,16 @@ services:
       retries: 20
 
   rabbitmq:
-    image: rabbitmq:3.12-management-alpine
+    image: rabbitmq:4.1-management-alpine
     container_name: dinehub-rabbitmq
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "${DINEHUB_MQ_PORT:-5672}:5672"
+      - "${DINEHUB_MQ_MANAGEMENT_PORT:-15672}:15672"
     environment:
       RABBITMQ_DEFAULT_USER: ${DINEHUB_MQ_USERNAME:-dinehub}
       RABBITMQ_DEFAULT_PASS: ${DINEHUB_MQ_PASSWORD:-dinehub}
     volumes:
-      - rabbitmq-data:/var/lib/rabbitmq
+      - rabbitmq-data-v41:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
       interval: 10s
@@ -50,4 +90,4 @@ services:
 volumes:
   mysql-data:
   redis-data:
-  rabbitmq-data:
+  rabbitmq-data-v41:

@@ -44,7 +44,7 @@ public class SeckillOrderConsumer {
                     return;
                 }
                 ledger.cleanup(message);
-                log.info("seckill request terminal outcome={}, requestId={}", outcome, message.getRequestId());
+                log.debug("seckill request terminal outcome={}, requestId={}", outcome, message.getRequestId());
             } finally {
                 ledger.endTerminalTransition(message.getCouponId());
             }

@@ -1,10 +1,12 @@
 package com.dinehub.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import lombok.ToString;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -23,6 +25,8 @@ public class Employee implements Serializable {
 
     private String name;
 
+    @JsonIgnore
+    @ToString.Exclude
     private String password;
 
     private String phone;

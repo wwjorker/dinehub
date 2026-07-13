@@ -18,6 +18,9 @@
         <set>
             status = #{o.status},
             <if test="o.payStatus != null">pay_status = #{o.payStatus},</if>
+            <if test="o.payStatus != null and o.payStatus == 3">
+                refund_next_retry_at = now(), refund_attempt_count = 0, refund_last_error = null,
+            </if>
             <if test="o.cancelReason != null">cancel_reason = #{o.cancelReason},</if>
             <if test="o.rejectionReason != null">rejection_reason = #{o.rejectionReason},</if>
             <if test="o.cancelTime != null">cancel_time = #{o.cancelTime},</if>

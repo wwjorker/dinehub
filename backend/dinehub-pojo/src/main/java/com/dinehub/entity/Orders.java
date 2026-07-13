@@ -77,6 +77,15 @@ public class Orders implements Serializable {
     //支付状态 0未支付 1已支付 2退款
     private Integer payStatus;
 
+    //退款兜底调度:仅 payStatus=3 时使用
+    private LocalDateTime refundNextRetryAt;
+
+    //退款调用累计尝试次数
+    private Integer refundAttemptCount;
+
+    //最近一次退款状态或异常摘要(不保存敏感响应正文)
+    private String refundLastError;
+
     //实收金额
     private BigDecimal amount;
 

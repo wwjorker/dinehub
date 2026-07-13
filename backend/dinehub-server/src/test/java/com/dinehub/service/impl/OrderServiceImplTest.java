@@ -28,6 +28,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -36,6 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -252,6 +254,7 @@ class OrderServiceImplTest {
         orderService.executeRefund(paid);
 
         verify(orderMapper, never()).markRefunded(anyLong());
+        verify(orderMapper).scheduleRefundRetry(eq(9L), any(LocalDateTime.class), eq("PROCESSING"));
     }
 
     @Test
@@ -277,6 +280,21 @@ class OrderServiceImplTest {
         orderService.executeRefund(paid);
 
         verify(orderMapper, never()).markRefunded(anyLong());
+        verify(orderMapper).scheduleRefundRetry(eq(9L), any(LocalDateTime.class),
+                eq("IOException:timeout"));
+    }
+
+    @Test
+    void terminalRefundFailureMovesToManualIntervention() throws Exception {
+        Orders paid = Orders.builder().id(9L).number("N9").payStatus(Orders.REFUND_PENDING)
+                .amount(new BigDecimal("36.00")).build();
+        when(weChatProperties.getApiV3Key()).thenReturn("configured");
+        when(weChatPayUtil.queryRefund("RN9")).thenReturn(WeChatPayUtil.RefundStatus.ABNORMAL);
+
+        orderService.executeRefund(paid);
+
+        verify(orderMapper).markRefundIntervention(9L, "STATUS:ABNORMAL");
+        verify(orderMapper, never()).scheduleRefundRetry(anyLong(), any(), anyString());
     }
 
     @Test

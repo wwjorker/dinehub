@@ -42,6 +42,6 @@ jobs:
           tests = sum(int(suite.attrib.get('tests', 0)) for suite in suites)
           skipped = sum(int(suite.attrib.get('skipped', 0)) for suite in suites)
           print(f'tests={tests} skipped={skipped}')
-          if tests < 91 or skipped != 0:
-              raise SystemExit('expected at least 91 tests with no skips')
+          if tests < 96 or skipped != 0:
+              raise SystemExit('expected at least 96 tests with no skips')
           PY

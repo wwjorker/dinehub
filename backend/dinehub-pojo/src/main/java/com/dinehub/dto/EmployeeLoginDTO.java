@@ -3,6 +3,7 @@ package com.dinehub.dto;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
+import lombok.ToString;
 
 import java.io.Serializable;
 
@@ -14,6 +15,7 @@ public class EmployeeLoginDTO implements Serializable {
     private String username;
 
     @ApiModelProperty("密码")
+    @ToString.Exclude
     private String password;
 
 }

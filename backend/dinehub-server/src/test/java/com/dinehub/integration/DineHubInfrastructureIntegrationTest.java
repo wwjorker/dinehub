@@ -40,6 +40,9 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.UUID;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -125,8 +128,8 @@ class DineHubInfrastructureIntegrationTest {
                 "select version from flyway_schema_history where version is not null order by installed_rank desc limit 1",
                 String.class);
 
-        assertEquals(9, migrations);
-        assertEquals("9", latest);
+        assertEquals(10, migrations);
+        assertEquals("10", latest);
         assertEquals(1, jdbc.queryForObject(
                 "select count(*) from information_schema.tables where table_schema = database() and table_name = 'seckill_request'",
                 Integer.class));
@@ -355,6 +358,36 @@ class DineHubInfrastructureIntegrationTest {
             assertEquals(Orders.PAID, payStatus);
         } else {
             assertEquals(Orders.REFUND_PENDING, payStatus);
+        }
+    }
+
+    @Test
+    void refundRetryScanAdvancesBeyondTheFirstBatch() {
+        jdbc.update("update orders set pay_status = 2 where pay_status = 3");
+        String prefix = "RF" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        try {
+            for (int i = 0; i < 60; i++) {
+                jdbc.update("insert into orders(number, status, fulfillment_type, user_id, address_book_id," +
+                                " order_time, pay_method, pay_status, amount, delivery_status, tableware_status," +
+                                " refund_next_retry_at) values(?, 6, 2, ?, null, now(), 1, 3, ?, 1, 1," +
+                                " date_sub(now(), interval 1 minute))",
+                        prefix + String.format("%02d", i), 93000L + i, new BigDecimal("10.00"));
+            }
+
+            List<Orders> firstBatch = orderMapper.listRefundPending(LocalDateTime.now(), 50);
+            assertEquals(50, firstBatch.size());
+            Set<Long> firstIds = new HashSet<>();
+            for (Orders order : firstBatch) {
+                firstIds.add(order.getId());
+                assertEquals(1, orderMapper.scheduleRefundRetry(order.getId(),
+                        LocalDateTime.now().plusMinutes(10), "PROCESSING"));
+            }
+
+            List<Orders> secondBatch = orderMapper.listRefundPending(LocalDateTime.now(), 50);
+            assertEquals(10, secondBatch.size());
+            assertTrue(secondBatch.stream().noneMatch(order -> firstIds.contains(order.getId())));
+        } finally {
+            jdbc.update("delete from orders where number like ?", prefix + "%");
         }
     }
 

@@ -70,20 +70,40 @@ public interface OrderMapper {
     /**
      * 退款确认:仅退款中(3)可转已退款(2),幂等
      */
-    @Update("update orders set pay_status = 2 where id = #{id} and pay_status = 3")
+    @Update("update orders set pay_status = 2, refund_next_retry_at = null, refund_last_error = null" +
+            " where id = #{id} and pay_status = 3")
     int markRefunded(Long id);
 
     /**
      * 迟到支付:订单已取消后钱才到账,标记为退款中转入退款流程
      */
-    @Update("update orders set pay_status = 3 where id = #{id} and status = 6 and pay_status <> 2")
+    @Update("update orders set pay_status = 3, refund_next_retry_at = now()," +
+            " refund_attempt_count = 0, refund_last_error = null" +
+            " where id = #{id} and status = 6 and pay_status <> 2")
     int markRefundPendingIfCancelled(Long id);
 
     /**
-     * 待重试退款的订单(退款调用失败或结果未知时停留在退款中)
+     * 到达重试时间的退款订单。每次处理都会推进 next_retry_at，避免固定批次被长期处理中记录占满。
      */
-    @Select("select * from orders where pay_status = 3 limit 50")
-    List<Orders> listRefundPending();
+    @Select("select * from orders where pay_status = 3" +
+            " and (refund_next_retry_at is null or refund_next_retry_at <= #{now})" +
+            " order by coalesce(refund_next_retry_at, '1970-01-01 00:00:00'), id limit #{limit}")
+    List<Orders> listRefundPending(@Param("now") LocalDateTime now, @Param("limit") int limit);
+
+    @Update("update orders set refund_next_retry_at = #{nextRetryAt}," +
+            " refund_attempt_count = refund_attempt_count + 1, refund_last_error = #{error}" +
+            " where id = #{id} and pay_status = 3")
+    int scheduleRefundRetry(@Param("id") Long id,
+                            @Param("nextRetryAt") LocalDateTime nextRetryAt,
+                            @Param("error") String error);
+
+    /**
+     * CLOSED/ABNORMAL 不再自动调用支付平台，移到人工介入区且不阻塞后续退款。
+     */
+    @Update("update orders set refund_next_retry_at = '9999-12-31 23:59:59'," +
+            " refund_attempt_count = refund_attempt_count + 1, refund_last_error = #{error}" +
+            " where id = #{id} and pay_status = 3")
+    int markRefundIntervention(@Param("id") Long id, @Param("error") String error);
 
     /**
      * 分页条件查询并按下单时间排序

@@ -46,6 +46,10 @@ import java.util.stream.Collectors;
 @Slf4j
 public class OrderServiceImpl implements OrderService {
 
+    private static final int REFUND_RETRY_BATCH_SIZE = 50;
+    private static final int REFUND_RETRY_DELAY_MINUTES = 10;
+    private static final int REFUND_ERROR_MAX_LENGTH = 255;
+
     @Autowired
     private OrderMapper orderMapper;
     @Autowired
@@ -374,23 +378,43 @@ public class OrderServiceImpl implements OrderService {
             if (refundStatus == WeChatPayUtil.RefundStatus.SUCCESS) {
                 orderMapper.markRefunded(order.getId());
             } else if (refundStatus == WeChatPayUtil.RefundStatus.PROCESSING) {
-                log.info("refund still processing for order {}, kept pending", order.getNumber());
+                scheduleRefundRetry(order.getId(), "PROCESSING");
+                log.info("refund still processing for order {}, next query scheduled", order.getNumber());
             } else {
-                log.error("refund status {} for order {}, kept pending for intervention",
+                orderMapper.markRefundIntervention(order.getId(), trimRefundError("STATUS:" + refundStatus));
+                log.error("refund status {} for order {}, moved to manual intervention",
                         refundStatus, order.getNumber());
             }
         } catch (Exception e) {
-            log.error("refund failed for order {}, kept pending for retry", order.getNumber(), e);
+            scheduleRefundRetry(order.getId(), e.getClass().getSimpleName() + ":" + e.getMessage());
+            log.error("refund failed for order {}, next retry scheduled", order.getNumber(), e);
         }
+    }
+
+    private void scheduleRefundRetry(Long orderId, String error) {
+        orderMapper.scheduleRefundRetry(orderId,
+                LocalDateTime.now().plusMinutes(REFUND_RETRY_DELAY_MINUTES), trimRefundError(error));
+    }
+
+    private String trimRefundError(String error) {
+        String safe = error == null ? "UNKNOWN" : error.replaceAll("[\\r\\n\\t]", " ");
+        return safe.length() <= REFUND_ERROR_MAX_LENGTH
+                ? safe : safe.substring(0, REFUND_ERROR_MAX_LENGTH);
     }
 
     /**
      * 重试停留在退款中的订单(兜底扫描调用)
      */
     public void retryPendingRefunds() {
-        List<Orders> pending = orderMapper.listRefundPending();
+        List<Orders> pending = orderMapper.listRefundPending(LocalDateTime.now(), REFUND_RETRY_BATCH_SIZE);
         for (Orders order : pending) {
-            executeRefund(order);
+            try {
+                executeRefund(order);
+            } catch (RuntimeException e) {
+                //单条记录的数据库/调度异常不能阻断同批其余退款
+                log.error("refund retry bookkeeping failed for order {}, continuing batch",
+                        order.getNumber(), e);
+            }
         }
     }
 

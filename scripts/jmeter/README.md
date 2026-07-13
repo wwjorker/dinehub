@@ -4,12 +4,19 @@
 
 ## 准备
 
-1. `docker compose up -d` 启动 MySQL/Redis/RabbitMQ,启动后端(见根 README)。
-2. 造数(容器内执行,幂等性自行注意):
+1. `docker compose up -d --build` 启动应用、MySQL、Redis 与 RabbitMQ(见根 README)。
+   - 正式压测前将 `DINEHUB_RATE_LIMIT_ENABLED=false`,避免把入口保护能力混入业务链路吞吐。
+   - DB 对照组设置 `DINEHUB_SECKILL_MODE=db`;可靠异步组设置为 `redis`,切换后重建 app 容器。
+2. 造数:
    - 菜品:向 `dish` 表补种子数据至 500 条(分类 16 下约 63 条)。
-   - 用户:向 `user` 表插入 20000 个压测用户。
+   - 用户与令牌可用入库脚本一次生成:
+
+```bash
+python prepare_seckill.py --secret <dev profile 的用户 JWT 密钥>
+# 将 users_seed.sql 导入 MySQL;user_tokens.csv 已被 gitignore
+```
    - 秒杀券:管理端创建 `total_stock=100000` 的秒杀券并发布(预热 Redis)。
-3. 为压测用户生成 JWT 一行一个写入 `user_tokens.csv`(HS256,密钥与 `dinehub.jwt.user-secret-key` 一致,claim 为 `userId`)。
+3. 管理端创建并发布压测券;每轮必须等待 RabbitMQ 队列排空,再清理该券的 `user_coupon`/`seckill_request` 并重建 Redis 账本。直接在有在途消息时删表会污染下一轮。
 
 ## 运行
 
@@ -28,3 +35,5 @@ python analyze.py out.jtl
 ```
 
 每组配置跑 3 轮取中位数;应用与 JMeter 同机运行,发压端与服务端抢占 CPU,数字口径偏保守。
+
+当前版本最近一次三轮结果(2026-07-13):DB 行锁为 81.2/80.8/77.6 QPS,中位数 80.8 QPS、P50 1510ms、P99 8751ms;可恢复 Redis 投递为 1031/1248/1552 QPS,中位数 1248 QPS、P50 103ms、P99 385ms。两组错误率均为 0%。Redis 数字只代表可靠准入,异步到账速度单独统计。

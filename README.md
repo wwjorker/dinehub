@@ -11,12 +11,13 @@ DineHub 是一个面向单店/小连锁餐饮商家的一体化经营平台后�
 - **运营台**(`/h5/ops.html`):商家登录、建桌台并预览二维码、创建/发布秒杀券、订单一览——演示最小闭环,完整管理能力见接口文档。
 - **用户端(接口)**:菜品浏览(Redis 缓存)、购物车、外卖下单、微信支付对接。
 - **扫码点单**:管理端维护桌台并生成二维码(zxing),顾客扫码后凭桌台令牌下堂食单,与外卖单共用订单主链路(履约方式分支),地址/配送环节自动跳过。
-- **限时秒杀优惠券**:Redis+Lua 原子准入(查库存/判重/扣减/记名一次往返)→ RabbitMQ 异步落库 → 唯一键幂等 → 重试→死信→原子幂等的库存回补(单 Lua + requestId 标记);发布走状态条件更新防重复预热,防重集合按 DB 持券记录重建,消息发送失败即时回补名额;DB 行锁方案保留为可切换的压测对照组(`dinehub.seckill.mode`)。
+- **限时秒杀优惠券**:Redis+Lua 在一次原子操作中完成库存判定、一人一券、预扣和请求登记;RabbitMQ publisher confirm/return 只推进投递状态,未知结果不误补偿;低频扫描按同一 `requestId` 重发,消费者与补偿者通过 MySQL `seckill_request` 终态行竞争,保证一个准入最终只能“落券”或“退款”二选一。重复消费、重复死信和迟到消息均幂等;DB 行锁方案保留为可切换对照组。
 - **订单超时取消**:TTL+死信实现延迟消息,消费者做状态条件更新(与支付回调竞态安全);原轮询任务降级为低频兜底扫描,双保险。
 - **缓存一致性**:菜品缓存延迟双删,覆盖"删除后读请求回填旧值"的窗口。
 - **接口限流**:注解式令牌桶(惰性补充,无后台线程),挂在秒杀入口,支持全局开关。
 - **安全与状态机**:用户侧订单/地址全部归属校验(防横向越权);订单金额与打包费全部服务端计算,支付金额取库内订单值,回调实付金额核对不符即拒绝确认;接单/拒单/派送/完成/取消/支付全部为乐观状态迁移(以读取时状态为条件,并发只有一方成功);退款仅在赢得取消迁移后执行,金额取库内值、退款单号独立且固定,失败停留"退款中"由兜底扫描幂等重试;迟到支付自动转入退款流程;员工密码 BCrypt 存储(历史 MD5 账户登录时平滑升级);请求级认证上下文自动清理。
-- **基建**:Flyway 全量 schema 管理、Docker Compose 一键中间件、GitHub Actions CI(含 Testcontainers 真 Redis 的 Lua 并发无超卖测试)。
+- **恢复与对账**:活动中重建 Redis 时使用每券短屏障,阻止新准入并等待正在进行的落库/补偿退出;重建库存按“DB 剩余库存 − 非终态预留”计算,在途用户并入防重集合。管理端提供只读库存对账接口,可直接看到 DB/Redis 漂移和三类终态计数。
+- **基建与观测**:Flyway 全量 schema 管理、Actuator/Prometheus 指标、HTTP/MQ `requestId` 日志贯穿、多阶段非 root 应用镜像、Docker Compose 全栈启动;GitHub Actions 同时校验前端构建产物和后端测试。
 
 ## 性能压测
 
@@ -36,16 +37,17 @@ DineHub 是一个面向单店/小连锁餐饮商家的一体化经营平台后�
 
 ### 秒杀抢券:DB 行锁 vs Redis+Lua+MQ
 
-200 并发线程 × 100 次循环 = 20000 个请求,20000 个独立用户(CSV 逐行分发 JWT);压测期间关闭接口限流以测纯链路。注意口径:Redis 模式的 QPS 是**准入吞吐**(资格判定 + 消息入队),券的落库由消费者异步完成。
+200 并发线程 × 100 次循环 = 20000 个请求,20000 个独立用户(CSV 逐行分发 JWT);压测期间关闭接口限流以测纯链路。注意口径:Redis 模式的 QPS 是**可靠准入吞吐**(资格判定、请求账本登记、消息发布),券的落库由消费者异步完成。
 
 **吞吐组**(库存 100000,全成功路径):
 
 | 方案 | QPS(准入) | P50 | P99 | 错误率 |
 |---|---|---|---|---|
-| DB 行锁扣减 | 78.7 | 1402ms | 9924ms | 0% |
-| Redis+Lua+MQ | **2126** | **51ms** | **127ms** | 0.04%* |
+| DB 行锁扣减(当前实现) | 80.8 | 1510ms | 8751ms | 0% |
+| Redis+Lua+MQ(早期快路径,无投递账本) | 2126 | 51ms | 127ms | 0.04%* |
+| Redis+Lua+MQ(可恢复投递,当前实现) | **1248** | **103ms** | **385ms** | **0%** |
 
-*JMeter 复用连接被服务端断开后自动重试,同一用户的重试请求被一人一单正确拒绝,非系统错误。
+*早期快路径的少量错误来自连接重试触发一人一券拒绝。当前版本于 2026-07-13 重新执行三轮:DB 为 81.2/80.8/77.6 QPS,可靠 Redis 链路为 1031/1248/1552 QPS,表中均取中位数。可靠语义增加请求 Hash/ZSet 写入、发布 attempt CAS 和 confirm 回调,其相对早期快路径的吞吐下降是明确量化的可靠性成本。
 
 **售罄边界组**(库存 5000,20000 个用户争抢——超卖验证只有在真实触达库存边界时才有意义):
 
@@ -54,18 +56,19 @@ DineHub 是一个面向单店/小连锁餐饮商家的一体化经营平台后�
 | DB 行锁扣减 | 恰好 5000 | 15000 | 5000 / 5000 / 0 |
 | Redis+Lua+MQ | 恰好 5000 | 15000 | 5000 / 5000 / 0 |
 
-两种方案在售罄边界均无一超卖、无一人多券。200 并发下准入吞吐从 78.7 提升到 2126(约 27 倍),P99 从 9.9s 降到 127ms;瓶颈从 DB 行锁串行化(所有请求排队更新同一行)转移到 Redis 单线程往返。
+两种方案在售罄边界均无一超卖、无一人多券。当前同版本三轮中位数下,可靠 Redis 准入吞吐约为 DB 行锁的 15.4 倍,P99 从 8751ms 降至 385ms(缩短约 22.7 倍)。早期快路径展示性能上限;当前实现则主动用一部分吞吐换取崩溃后可恢复、可查询和可对账的消息语义。
 
-异步化的代价同样量化:抢购约 10 秒打完,4 个并发消费者以约 130 条/秒落库(每消息一个事务,受磁盘 fsync 限制),5000 张券全部到账约 40 秒——这就是"抢到 ≠ 到账"窗口,由"处理中"文案与我的券列表查询兜住体验;消费失败经重试进入死信队列后原子回补名额。
+异步化的代价同样量化:当前可靠消费者在本机约 85–90 条/秒(每消息事务内同时写终态、持券记录并扣 DB 库存),2 万条完全到账约 3.8 分钟。C 端先收到 `requestId` 并轮询 SUCCESS/PENDING/FAILED;积压不会被伪装成“已经到账”,失败则进入唯一补偿入口退还名额。
 
 ## 技术栈
 
 ```text
 Java 8 / Spring Boot 2.7.x
 MyBatis + PageHelper / MySQL 8 + Druid / Flyway
-Redis(缓存 + Lua 秒杀预扣)/ RabbitMQ(异步落库 + TTL/死信延迟消息)
+Redis(缓存 + Lua 原子账本)/ RabbitMQ(confirm/return + 异步落库 + TTL/死信)
 WebSocket / JWT 双端认证 / Knife4j / Apache POI / zxing
-JUnit 5 + Mockito + Testcontainers / GitHub Actions
+Actuator + Micrometer + Prometheus / MDC 请求追踪
+JUnit 5 + Mockito + Testcontainers(MySQL/Redis/RabbitMQ) / GitHub Actions
 ```
 
 ## 项目结构
@@ -78,30 +81,28 @@ dinehub
 |   +-- dinehub-server   业务模块(controller / service / mapper / mq / ratelimit / cache)
 +-- frontend/h5          点单 H5 与运营台(Vue 3 + Vite + Vant)
 +-- scripts/jmeter       压测脚本与汇总工具
-+-- docker-compose.yml   MySQL / Redis / RabbitMQ
++-- Dockerfile           多阶段构建、非 root 运行、容器健康检查
++-- docker-compose.yml   应用 / MySQL / Redis / RabbitMQ 完整运行栈
 ```
 
 ## 本地运行
 
 ```bash
-docker compose up -d          # MySQL(3306)/Redis(6379)/RabbitMQ(5672,管理台15672)
-cd backend
-./mvnw clean package
-SPRING_PROFILES_ACTIVE=dev java -jar dinehub-server/target/dinehub-server-1.0-SNAPSHOT.jar
+docker compose up -d --build  # 应用(8080)+MySQL(3307)+Redis+RabbitMQ
 ```
 
 profile 必须显式指定,没有默认值:本地/演示用 `dev`;生产用 `prod`——prod 不含任何密钥默认值,缺少 `DINEHUB_JWT_ADMIN_SECRET` 等环境变量时启动直接失败,而不是悄悄退回公开的开发密钥。
 
-首次启动由 Flyway 自动建表并写入开发种子数据。入口:点单 H5 `http://localhost:8080/h5/`、运营台 `http://localhost:8080/h5/ops.html`、接口文档 `http://localhost:8080/doc.html`(演示账号 admin/123456)。演示动线:运营台建桌台 → 查看二维码 → 手机扫码(同一局域网,二维码地址可用 `DINEHUB_H5_BASE_URL` 指到本机 IP)→ 点单下单;运营台创建并发布秒杀券 → H5 秒杀页抢券。H5 构建产物已入库;改前端后在 `frontend/h5` 内 `npm install && npm run build` 重新生成。C 端登录为昵称直登的演示模式(`dinehub.demo-login.enabled` 可关闭),正式环境应接入微信授权。宿主端口冲突时可用 `DINEHUB_DB_PORT` 等变量覆盖(见 `docker-compose.yml` 与 `application-dev.yml`);所有敏感配置(数据库口令、OSS/微信支付密钥)一律环境变量注入,仓库不含任何真实凭据。
+首次启动由 Flyway 自动建表并写入开发种子数据。入口:点单 H5 `http://localhost:8080/h5/`、运营台 `http://localhost:8080/h5/ops.html`、接口文档 `http://localhost:8080/doc.html`(演示账号 admin/123456)、健康检查 `/actuator/health`、Prometheus 指标 `/actuator/prometheus`。演示动线:运营台建桌台 → 查看二维码 → 手机扫码(同一局域网,二维码地址可用 `DINEHUB_H5_BASE_URL` 指到本机 IP)→ 点单下单;运营台创建并发布秒杀券 → H5 秒杀页抢券。H5 构建产物已入库;改前端后在 `frontend/h5` 内 `npm ci && npm run build` 重新生成,CI 会校验源码与入库产物一致。C 端昵称直登仅在 dev profile 开启,prod 固定关闭。宿主端口冲突时可用环境变量覆盖;所有敏感配置一律环境变量注入,仓库不含任何真实凭据。需要恢复演示态时执行 `scripts/demo-reset.sql`。
 
 注意:Flyway 社区版要求 MySQL 8.0+;若临时使用 MySQL 5.7,需手动执行 `db/migration` 下的 SQL 并以 `SPRING_FLYWAY_ENABLED=false` 启动。
 
 ## 测试
 
-`./mvnw test`:40 个测试(CI 全量),覆盖秒杀准入三分支、发布防重复、发送失败回补、消费幂等(同消息两次只落一行)、订单超时取消与支付回调的竞态、堂食/外卖双履约与越权拒绝、令牌桶补充与突发、缓存双删时序;其中 Lua 脚本在 Testcontainers 拉起的真实 Redis 上验证 200 并发抢 50 库存零超卖与 TTL 对齐(无 Docker 环境自动跳过)。CI 于每次 push 运行全量测试。
+`./mvnw test`:CI 当前执行 81 个测试。除普通单测外,Testcontainers 会启动真实 MySQL 8、Redis 7、RabbitMQ 4.1 与完整 Spring 上下文,覆盖:空库 Flyway V1→V8、准入后首发丢失由扫描恢复、重复消费只扣一次、重复补偿只退款一次、落券/补偿并发竞争只有一个终态、mandatory 不可路由回调、支付/取消条件更新竞争;独立 Redis 容器还验证 200 并发抢 50 库存零超卖、重建屏障和 TTL。无 Docker 环境自动跳过容器组,GitHub CI 必须完整执行。
 
 ## 演进方向
 
-- 秒杀消息投递升级 publisher confirm + 本地消息表;活动结束后的 Redis/DB 库存对账任务
+- 多实例部署时将进程内限流升级为 Redis+Lua 全局限流
+- 需要更强审计保留期时,把当前 Redis 过程账本扩展为持久化 outbox
 - 缓存一致性引入 Canal 订阅 binlog,把删除动作从业务代码剥离
-- 限流升级 Redis+Lua 全局令牌桶以支持多实例部署

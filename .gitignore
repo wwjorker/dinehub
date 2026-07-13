@@ -27,5 +27,8 @@ node_modules/
 # OS / logs
 logs/
 *.log
+*.jtl
+scripts/jmeter/*.csv
+scripts/jmeter/*_seed.sql
 Thumbs.db
 .DS_Store

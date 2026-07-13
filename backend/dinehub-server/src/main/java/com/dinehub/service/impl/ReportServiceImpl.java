@@ -292,7 +292,8 @@ public class ReportServiceImpl implements ReportService {
             out.close();
             excel.close();
         } catch (IOException e) {
-            e.printStackTrace();
+            log.error("Failed to export operation report", e);
+            throw new IllegalStateException("Failed to export operation report", e);
         }
 
     }

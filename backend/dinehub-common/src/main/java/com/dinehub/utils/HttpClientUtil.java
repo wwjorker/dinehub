@@ -13,6 +13,7 @@ import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.util.EntityUtils;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
 import java.net.URI;
@@ -23,6 +24,7 @@ import java.util.Map;
 /**
  * Http工具类
  */
+@Slf4j
 public class HttpClientUtil {
 
     static final  int TIMEOUT_MSEC = 5 * 1000;
@@ -60,13 +62,15 @@ public class HttpClientUtil {
                 result = EntityUtils.toString(response.getEntity(),"UTF-8");
             }
         }catch (Exception e){
-            e.printStackTrace();
+            log.error("GET request failed: {}", url, e);
         }finally {
             try {
-                response.close();
+                if (response != null) {
+                    response.close();
+                }
                 httpClient.close();
             } catch (IOException e) {
-                e.printStackTrace();
+                log.warn("Failed to close GET resources: {}", url, e);
             }
         }
 
@@ -92,7 +96,7 @@ public class HttpClientUtil {
 
             // 创建参数列表
             if (paramMap != null) {
-                List<NameValuePair> paramList = new ArrayList();
+                List<NameValuePair> paramList = new ArrayList<>();
                 for (Map.Entry<String, String> param : paramMap.entrySet()) {
                     paramList.add(new BasicNameValuePair(param.getKey(), param.getValue()));
                 }
@@ -111,9 +115,12 @@ public class HttpClientUtil {
             throw e;
         } finally {
             try {
-                response.close();
+                if (response != null) {
+                    response.close();
+                }
+                httpClient.close();
             } catch (IOException e) {
-                e.printStackTrace();
+                log.warn("Failed to close POST resources: {}", url, e);
             }
         }
 
@@ -161,9 +168,12 @@ public class HttpClientUtil {
             throw e;
         } finally {
             try {
-                response.close();
+                if (response != null) {
+                    response.close();
+                }
+                httpClient.close();
             } catch (IOException e) {
-                e.printStackTrace();
+                log.warn("Failed to close JSON POST resources: {}", url, e);
             }
         }
 

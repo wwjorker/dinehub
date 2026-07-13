@@ -16,6 +16,7 @@ import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * 缓存清理器,实现延迟双删:
@@ -58,14 +59,18 @@ public class CacheEvictor {
      * 延迟第二删。删除失败仅告警——缓存有回源能力,最终一致由TTL兜底
      */
     public void evictLater(String pattern) {
-        scheduler.schedule(() -> {
-            try {
-                evict(pattern);
-                log.debug("delayed second cache eviction done: {}", pattern);
-            } catch (Exception e) {
-                log.warn("delayed cache eviction failed for {}: {}", pattern, e.getMessage());
-            }
-        }, doubleDeleteDelayMillis, TimeUnit.MILLISECONDS);
+        try {
+            scheduler.schedule(() -> {
+                try {
+                    evict(pattern);
+                    log.debug("delayed second cache eviction done: {}", pattern);
+                } catch (Exception e) {
+                    log.warn("delayed cache eviction failed for {}: {}", pattern, e.getMessage());
+                }
+            }, doubleDeleteDelayMillis, TimeUnit.MILLISECONDS);
+        } catch (RejectedExecutionException ex) {
+            log.warn("delayed cache eviction rejected during shutdown: {}", pattern);
+        }
     }
 
     /**
@@ -79,6 +84,15 @@ public class CacheEvictor {
 
     @PreDestroy
     public void shutdown() {
-        scheduler.shutdownNow();
+        scheduler.shutdown();
+        long waitMillis = Math.min(3000L, Math.max(500L, doubleDeleteDelayMillis + 500L));
+        try {
+            if (!scheduler.awaitTermination(waitMillis, TimeUnit.MILLISECONDS)) {
+                scheduler.shutdownNow();
+            }
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            scheduler.shutdownNow();
+        }
     }
 }

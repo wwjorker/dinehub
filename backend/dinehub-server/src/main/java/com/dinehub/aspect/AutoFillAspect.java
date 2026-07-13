@@ -67,7 +67,7 @@ public class AutoFillAspect {
                 setUpdateTime.invoke(entity,now);
                 setUpdateUser.invoke(entity,currentId);
             } catch (Exception e) {
-                e.printStackTrace();
+                log.error("公共字段插入填充失败,entity={}", entity.getClass().getName(), e);
             }
         }else if(operationType == OperationType.UPDATE){
             //为2个公共字段赋值
@@ -79,7 +79,7 @@ public class AutoFillAspect {
                 setUpdateTime.invoke(entity,now);
                 setUpdateUser.invoke(entity,currentId);
             } catch (Exception e) {
-                e.printStackTrace();
+                log.error("公共字段更新填充失败,entity={}", entity.getClass().getName(), e);
             }
         }
     }

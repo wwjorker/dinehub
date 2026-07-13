@@ -7,13 +7,38 @@ async function request(path, options = {}) {
   const token = getToken()
   if (token) headers.authentication = token
 
-  const res = await fetch(path, { ...options, headers })
+  let res
+  try {
+    res = await fetch(path, { ...options, headers })
+  } catch (error) {
+    showToast('网络异常,请稍后重试')
+    throw error
+  }
   if (res.status === 401) {
     logout()
     location.hash = '#/login'
     throw new Error('请先登录')
   }
-  const body = await res.json()
+  const contentType = res.headers.get('content-type') || ''
+  let body
+  if (contentType.includes('application/json')) {
+    try {
+      body = await res.json()
+    } catch (_) {
+      showToast('服务响应格式错误')
+      throw new Error('服务响应格式错误')
+    }
+  }
+  if (!res.ok) {
+    const fallback = res.status === 429 ? '请求过于频繁' : res.status === 403 ? '无权执行此操作' : '服务暂时不可用'
+    const msg = body?.msg || fallback
+    showToast(msg)
+    throw new Error(msg)
+  }
+  if (!body) {
+    showToast('服务响应格式错误')
+    throw new Error('服务响应格式错误')
+  }
   if (body.code !== 1) {
     const msg = body.msg || '请求失败'
     showToast(msg)

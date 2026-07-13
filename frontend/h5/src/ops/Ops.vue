@@ -36,7 +36,18 @@ async function req(path, options = {}) {
     closeOrderSocket()
     throw new Error('登录过期')
   }
-  const body = await res.json()
+  const contentType = res.headers.get('content-type') || ''
+  let body
+  if (contentType.includes('application/json')) {
+    try { body = await res.json() } catch (_) {}
+  }
+  if (!res.ok) {
+    const fallback = res.status === 429 ? '请求过于频繁' : res.status === 403 ? '无权执行此操作' : '服务暂时不可用'
+    const message = body?.msg || fallback
+    toast(message)
+    throw new Error(message)
+  }
+  if (!body) { toast('服务响应格式错误'); throw new Error('服务响应格式错误') }
   if (body.code !== 1) { toast(body.msg || '操作失败'); throw new Error(body.msg) }
   return body.data
 }
@@ -113,6 +124,21 @@ async function addTable() {
 // 二维码接口在管理端鉴权之后,img 标签带不上 token,用 fetch 转 blob 展示
 async function showQr(t) {
   const res = await fetch(`/admin/table/qrcode/${t.id}`, { headers: { token: token.value } })
+  if (res.status === 401) {
+    token.value = ''
+    localStorage.removeItem('dinehub.ops.token')
+    closeOrderSocket()
+    throw new Error('登录过期')
+  }
+  if (!res.ok || !(res.headers.get('content-type') || '').startsWith('image/')) {
+    let message = '二维码加载失败'
+    if ((res.headers.get('content-type') || '').includes('application/json')) {
+      try { message = (await res.json()).msg || message } catch (_) {}
+    }
+    toast(message)
+    throw new Error(message)
+  }
+  if (qr.url) URL.revokeObjectURL(qr.url)
   qr.url = URL.createObjectURL(await res.blob())
   qr.name = t.name
   qr.show = true
@@ -154,7 +180,10 @@ onMounted(async () => {
   } catch (_) {}
 })
 
-onBeforeUnmount(closeOrderSocket)
+onBeforeUnmount(() => {
+  closeOrderSocket()
+  if (qr.url) URL.revokeObjectURL(qr.url)
+})
 </script>
 
 <template>

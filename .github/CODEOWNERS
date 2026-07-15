@@ -1,0 +1,10 @@
+# Default owner
+* @wwjorker
+
+# Keep high-risk areas explicit for future team expansion
+/.github/ @wwjorker
+/backend/ @wwjorker
+/frontend/ @wwjorker
+/scripts/ @wwjorker
+/Dockerfile @wwjorker
+/docker-compose.yml @wwjorker

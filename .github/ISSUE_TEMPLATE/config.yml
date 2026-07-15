@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 私密安全报告
+    url: https://github.com/wwjorker/dinehub/security/policy
+    about: 请勿公开披露漏洞，按照安全策略私下报告。

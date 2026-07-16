@@ -9,7 +9,7 @@ RUN mvn -B -DskipTests dependency:go-offline
 COPY backend/ ./
 RUN mvn -B -DskipTests clean package
 
-FROM eclipse-temurin:17-jre-alpine
+FROM eclipse-temurin:25-jre-alpine
 RUN addgroup -S dinehub && adduser -S dinehub -G dinehub
 WORKDIR /app
 COPY --from=build /workspace/backend/dinehub-server/target/dinehub-server-1.0-SNAPSHOT.jar app.jar

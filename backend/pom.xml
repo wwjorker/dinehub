@@ -33,7 +33,7 @@
         <mockito.version>4.11.0</mockito.version>
         <byte-buddy.version>1.14.9</byte-buddy.version>
         <jaxb-api>2.3.1</jaxb-api>
-        <poi>3.16</poi>
+        <poi>4.1.1</poi>
     </properties>
     <dependencyManagement>
         <dependencies>

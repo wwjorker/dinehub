@@ -16,6 +16,14 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      # JJWT 0.10+ changes both APIs and module layout; migrate it separately.
+      - dependency-name: io.jsonwebtoken:jjwt
+        versions:
+          - ">= 0.10.0"
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
 
   - package-ecosystem: npm
     directory: /frontend/h5
@@ -33,6 +41,10 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
 
   - package-ecosystem: docker
     directory: /
@@ -43,6 +55,10 @@ updates:
     open-pull-requests-limit: 2
     commit-message:
       prefix: "chore(deps)"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
 
   - package-ecosystem: github-actions
     directory: /

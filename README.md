@@ -112,3 +112,7 @@ profile 必须显式指定,没有默认值:本地/演示用 `dev`;生产用 `pro
 - 开发环境、分支、测试和 Pull Request 要求见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 - 安全问题不要提交公开 Issue，请按 [SECURITY.md](SECURITY.md) 私下报告。
 - 自动依赖更新覆盖 Maven、npm、Docker 和 GitHub Actions；所有更新仍须通过现有 CI 后再合并。
+
+## 授权状态
+
+本仓库包含由教学项目改编的内容，尚未取得可公开再分发的完整授权，因此当前保持私有且不提供开源许可证。来源和使用边界见 [NOTICE.md](NOTICE.md)。

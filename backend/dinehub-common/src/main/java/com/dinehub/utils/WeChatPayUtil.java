@@ -5,7 +5,6 @@ import com.alibaba.fastjson.JSONObject;
 import com.dinehub.properties.WeChatProperties;
 import com.wechat.pay.contrib.apache.httpclient.WechatPayHttpClientBuilder;
 import com.wechat.pay.contrib.apache.httpclient.util.PemUtil;
-import org.apache.commons.lang.RandomStringUtils;
 import org.apache.http.HttpHeaders;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
@@ -28,6 +27,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * 微信支付工具类
@@ -158,7 +158,7 @@ public class WeChatPayUtil {
         String prepayId = jsonObject.getString("prepay_id");
         if (prepayId != null) {
             String timeStamp = String.valueOf(System.currentTimeMillis() / 1000);
-            String nonceStr = RandomStringUtils.randomNumeric(32);
+            String nonceStr = UUID.randomUUID().toString().replace("-", "");
             ArrayList<Object> list = new ArrayList<>();
             list.add(weChatProperties.getAppid());
             list.add(timeStamp);

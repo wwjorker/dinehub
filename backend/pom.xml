@@ -20,7 +20,7 @@
     <properties>
         <mybatis.spring>2.2.0</mybatis.spring>
         <lombok>1.18.30</lombok>
-        <fastjson>1.2.76</fastjson>
+        <fastjson>1.2.83</fastjson>
         <commons.lang>2.6</commons.lang>
         <druid>1.2.1</druid>
         <pagehelper>1.3.0</pagehelper>
@@ -33,7 +33,7 @@
         <mockito.version>4.11.0</mockito.version>
         <byte-buddy.version>1.14.9</byte-buddy.version>
         <jaxb-api>2.3.1</jaxb-api>
-        <poi>3.16</poi>
+        <poi>5.4.0</poi>
     </properties>
     <dependencyManagement>
         <dependencies>

@@ -106,3 +106,9 @@ profile 必须显式指定,没有默认值:本地/演示用 `dev`;生产用 `pro
 - 多实例部署时将进程内限流升级为 Redis+Lua 全局限流
 - 需要更强审计保留期时,把当前 Redis 过程账本扩展为持久化 outbox
 - 缓存一致性引入 Canal 订阅 binlog,把删除动作从业务代码剥离
+
+## 协作与安全
+
+- 开发环境、分支、测试和 Pull Request 要求见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+- 安全问题不要提交公开 Issue，请按 [SECURITY.md](SECURITY.md) 私下报告。
+- 自动依赖更新覆盖 Maven、npm、Docker 和 GitHub Actions；所有更新仍须通过现有 CI 后再合并。

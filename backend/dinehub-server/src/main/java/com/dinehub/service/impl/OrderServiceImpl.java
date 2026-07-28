@@ -113,7 +113,7 @@ public class OrderServiceImpl implements OrderService {
         }
 
         Object shopStatus = redisTemplate.opsForValue().get("SHOP_STATUS");
-        if (shopStatus != null && !"1".equals(String.valueOf(shopStatus))) {
+        if (!"1".equals(String.valueOf(shopStatus))) {
             throw new OrderBusinessException(MessageConstant.SHOP_CLOSED);
         }
 

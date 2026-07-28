@@ -7,9 +7,9 @@ DineHub 是一个面向单店/小连锁餐饮商家的一体化经营平台后�
 ## 功能全景
 
 - **商家管理端**:员工、分类、菜品、套餐、订单管理、营业统计、运营报表导出(POI)、来单提醒(WebSocket)。
-- **用户端 H5**(`/h5/`,Vue 3 + Vant):扫桌台二维码落地、演示登录、分类点单与口味选择、购物车、堂食下单、秒杀抢券(实时库存进度)、我的券与订单。
-- **运营台**(`/h5/ops.html`):商家登录、建桌台并预览二维码、创建/发布秒杀券、订单一览——演示最小闭环,完整管理能力见接口文档。
-- **用户端(接口)**:菜品浏览(Redis 缓存)、购物车、外卖下单、微信支付对接。
+- **用户端 H5**(`/h5/`,Vue 3 + Vant):扫桌台二维码落地、演示登录、菜品/套餐与口味选择、购物车、堂食/外送切换、地址管理、优惠券结算、幂等下单、订单详情与操作、dev 模拟支付、秒杀持券状态和“再来一单”。
+- **运营台**(`/h5/ops.html`):营业状态和经营总览、WebSocket 来单、订单详情与完整履约状态机、分类/菜品/套餐、桌台二维码、优惠券发布/重建/对账、员工、报表导出和工程驾驶舱。
+- **用户端(接口)**:菜品浏览(Redis 缓存)、购物车、堂食/外卖下单、服务端计价与优惠券核销、微信支付适配边界。
 - **扫码点单**:管理端维护桌台并生成二维码(zxing),顾客扫码后凭桌台令牌下堂食单,与外卖单共用订单主链路(履约方式分支),地址/配送环节自动跳过。
 - **限时秒杀优惠券**:Redis+Lua 在一次原子操作中完成库存判定、一人一券、预扣和请求登记;Redis 使用 AOF `everysec` 持久化过程账本;RabbitMQ publisher confirm/return 只推进投递状态,未知结果不误补偿;低频扫描按同一 `requestId` 重发,消费者与补偿者通过 MySQL `seckill_request` 终态行竞争,保证已形成持久化请求事实的准入最终只能“落券”或“退名额”二选一。MySQL 中超时的补偿中记录会被独立扫描恢复,重复消费、重复死信和迟到消息均幂等。DB 行锁方案保留为可切换对照组。宿主机突然掉电时 AOF 最后约 1 秒未刷盘的数据,以及 Redis 数据卷整体丢失且准入尚未进入 RabbitMQ/MySQL 的组合故障,不在当前保证内;商业系统可用数据库 outbox 进一步消除该边界。
 - **订单超时取消**:TTL+死信实现延迟消息,消费者做状态条件更新(与支付回调竞态安全);原轮询任务降级为低频兜底扫描,双保险。
@@ -93,13 +93,15 @@ docker compose up -d --build  # 应用(8080)+MySQL(3307)+Redis+RabbitMQ
 
 profile 必须显式指定,没有默认值:本地/演示用 `dev`;生产用 `prod`——prod 的 JWT、数据库、Redis、RabbitMQ 与支付配置均不含可用的敏感默认值,缺少必要环境变量时启动直接失败,而不是悄悄退回开发配置。
 
-首次启动由 Flyway 自动建表并写入非账号类演示数据;`dev` profile 会单独创建演示管理员 admin/123456,`prod` 不创建任何默认管理员。入口:点单 H5 `http://localhost:8080/h5/`、运营台 `http://localhost:8080/h5/ops.html`、接口文档 `http://localhost:8080/doc.html`、健康检查 `/actuator/health`、Prometheus 指标 `/actuator/prometheus`。演示动线:运营台建桌台 → 查看二维码 → 手机扫码(同一局域网,二维码地址可用 `DINEHUB_H5_BASE_URL` 指到本机 IP)→ 点单下单;运营台创建并发布秒杀券 → H5 秒杀页抢券。H5 构建产物已入库;改前端后在 `frontend/h5` 内 `npm ci && npm run build` 重新生成,CI 会校验源码与入库产物一致。C 端昵称直登仅在 dev profile 开启,prod 固定关闭。宿主端口冲突时可用环境变量覆盖;所有敏感配置一律环境变量注入,仓库不含任何真实凭据。真实商户支付启用前必须接入微信支付平台证书验签 `Validator`,当前无商户证书的演示配置不会把未验签回调描述为生产可用。需要恢复演示态时执行 `scripts/demo-reset.sql`。
+首次启动由 Flyway 自动建表并写入非账号类演示数据;`dev` profile 会单独创建演示管理员 admin/123456,`prod` 不创建任何默认管理员。入口:点单 H5 `http://localhost:8080/h5/`、运营台 `http://localhost:8080/h5/ops.html`、接口文档 `http://localhost:8080/doc.html`、健康检查 `/actuator/health`、Prometheus 指标 `/actuator/prometheus`。营业状态缺失时系统按“打烊”处理;先在运营台登录并开启营业。推荐演示动线:商家准备菜品/套餐与桌台 → 顾客扫码或演示登录 → 选口味并加入购物车 → 选择堂食/外送、地址和优惠券 → 幂等下单 → dev 模拟支付 → 商家接单/派送/完成 → 用户订单页查看最终状态;秒杀链路可另行演示发布、抢券、持券状态和库存对账。手机扫码需同一局域网,并用 `DINEHUB_H5_BASE_URL` 将二维码地址指向电脑局域网 IP。H5 构建产物已入库;改前端后在 `frontend/h5` 内 `npm ci && npm run build` 重新生成,CI 会校验源码与入库产物一致。C 端昵称直登和模拟支付仅在 dev profile 开启,prod 固定关闭。MySQL、Redis 和 RabbitMQ 的宿主端口默认只绑定 `127.0.0.1`;所有敏感配置一律环境变量注入,仓库不含任何真实凭据。真实商户支付启用前必须接入微信支付平台证书验签 `Validator`,当前无商户证书的演示配置不会把未验签回调描述为生产可用。需要恢复演示态时执行 `scripts/demo-reset.sql`。
 
 注意:Flyway 社区版要求 MySQL 8.0+;若临时使用 MySQL 5.7,需手动执行 `db/migration` 下的 SQL 并以 `SPRING_FLYWAY_ENABLED=false` 启动。
 
 ## 测试
 
-`./mvnw test`:CI 当前执行 96 个测试。除普通单测外,Testcontainers 会启动真实 MySQL 8、Redis 7、RabbitMQ 4.1 与完整 Spring 上下文,覆盖:空库 Flyway V1→V10 且生产迁移不创建默认管理员、退款重试批次不会饥饿、准入后首发丢失由扫描恢复、Redis 过程账本全丢后由 MySQL 恢复补偿、重复消费只扣一次、重复补偿只退款一次、落券/补偿并发竞争只有一个终态、mandatory 不可路由回调、支付/取消及自动完成/取消的条件更新竞争、失效重建者不能覆盖新账本;独立 Redis 容器还验证 200 并发抢 50 库存零超卖、重建屏障和 TTL。无 Docker 环境自动跳过容器组,GitHub CI 必须完整执行。
+`./mvnw test` 本轮发现 84 项：82 通过、0 failure、0 error，2 个 Testcontainers 类因当前沙箱无权访问 Docker named pipe 而跳过；Docker Compose 真实运行栈与浏览器纵向 E2E 另行完成复验。容器组会启动真实 MySQL 8、Redis 7、RabbitMQ 4.1 与完整 Spring 上下文,覆盖空库 Flyway 迁移、生产迁移不创建默认管理员、退款重试、秒杀首发恢复/重复消费/重复补偿/终态竞争、mandatory return、支付/取消竞态、Redis 重建屏障和并发零超卖等性质;CI 应在可访问 Docker 的 runner 上完整执行且不允许无解释跳过。
+
+当前 `npm audit --omit=dev` 在 PostCSS 8.5.24 上仍报告 7 条 high 依赖路径且上游暂无可用修复。这是需要持续跟踪的构建/开发供应链风险,不等同于已构建静态页面存在已验证的远程利用;项目不使用 `npm audit fix --force` 破坏兼容性。
 
 ## 演进方向
 

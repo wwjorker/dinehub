@@ -366,6 +366,16 @@ class OrderServiceImplTest {
     }
 
     @Test
+    void missingShopStatusFailsClosed() {
+        when(valueOperations.get("SHOP_STATUS")).thenReturn(null);
+        OrdersSubmitDTO dto = new OrdersSubmitDTO();
+        dto.setRequestId("req-status-missing");
+
+        assertThrows(OrderBusinessException.class, () -> orderService.submitOrder(dto));
+        verify(orderMapper, never()).insert(any());
+    }
+
+    @Test
     void couponDiscountIsCalculatedAndReservedByTheServer() {
         DiningTable table = DiningTable.builder().id(7L).name("A07")
                 .status(StatusConstant.ENABLE).build();

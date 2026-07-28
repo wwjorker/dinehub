@@ -86,12 +86,15 @@ async function addToCart(payload) {
 }
 
 onMounted(async () => {
-  const [dishCategories, setmealCategories, status] = await Promise.all([
+  const [dishCategories, setmealCategories] = await Promise.all([
     api.categories(1),
-    api.categories(2),
-    api.shopStatus()
+    api.categories(2)
   ])
-  store.shopOpen = Number(status) === 1
+  try {
+    store.shopOpen = Number(await api.shopStatus()) === 1
+  } catch {
+    store.shopOpen = false
+  }
   categories.value = [
     ...dishCategories.map((item) => ({ ...item, productType: 'dish' })),
     ...setmealCategories.map((item) => ({ ...item, productType: 'setmeal' }))

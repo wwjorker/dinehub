@@ -62,6 +62,12 @@ public class Orders implements Serializable {
     //下单用户id
     private Long userId;
 
+    // Client-generated request id, unique per user.
+    private String requestId;
+
+    // Coupon holding reserved for this order.
+    private Long userCouponId;
+
     //地址id
     private Long addressBookId;
 
@@ -88,6 +94,12 @@ public class Orders implements Serializable {
 
     //实收金额
     private BigDecimal amount;
+
+    // Amount before coupon discount.
+    private BigDecimal originalAmount;
+
+    // Coupon discount applied by the server.
+    private BigDecimal discountAmount;
 
     //备注
     private String remark;

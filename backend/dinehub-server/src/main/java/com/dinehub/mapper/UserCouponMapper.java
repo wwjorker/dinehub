@@ -7,6 +7,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
 
@@ -22,6 +23,20 @@ public interface UserCouponMapper {
     void insert(UserCoupon userCoupon);
 
     List<UserCouponVO> listByUserId(Long userId);
+
+    UserCouponVO getByIdAndUserId(@Param("id") Long id, @Param("userId") Long userId);
+
+    @Update("update user_coupon set status = 4, order_id = #{orderId}" +
+            " where id = #{id} and user_id = #{userId} and status = 1")
+    int reserveIfUnused(@Param("id") Long id, @Param("userId") Long userId,
+                        @Param("orderId") Long orderId);
+
+    @Update("update user_coupon set status = 2 where order_id = #{orderId} and status = 4")
+    int markUsedByOrderId(Long orderId);
+
+    @Update("update user_coupon set status = 1, order_id = null" +
+            " where order_id = #{orderId} and status in (2, 4)")
+    int releaseByOrderId(Long orderId);
 
     /**
      * 已持券用户id,发布/重新预热时用DB数据重建Redis防重集合

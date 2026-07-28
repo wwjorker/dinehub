@@ -7,6 +7,10 @@ server:
 spring:
   main:
     allow-circular-references: true
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
   mvc:
     pathmatch:
       matching-strategy: ant_path_matcher

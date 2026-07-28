@@ -12,11 +12,14 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.UUID;
 
 /**
- * 通用接口
+ * Common administration APIs.
  */
 @RestController
 @RequestMapping("/admin/common")
@@ -24,34 +27,53 @@ import java.util.UUID;
 @Slf4j
 public class CommonController {
 
+    private static final long MAX_IMAGE_BYTES = 5L * 1024 * 1024;
+    private static final long MAX_IMAGE_PIXELS = 20_000_000L;
+
     @Autowired
     private AliOssUtil aliOssUtil;
 
     /**
-     * 文件上传
-     * @param file
-     * @return
+     * Accepts JPEG/PNG images only. The server decodes and re-encodes the
+     * image, so the object uploaded to OSS cannot retain disguised payloads.
      */
     @PostMapping("/upload")
-    @ApiOperation("文件上传")
-    public Result<String> upload(MultipartFile file){
-        log.info("文件上传：{}",file);
+    @ApiOperation("上传菜品图片")
+    public Result<String> upload(MultipartFile file) {
+        log.info("image upload requested, bytes={}", file == null ? 0 : file.getSize());
 
         try {
-            //原始文件名
-            String originalFilename = file.getOriginalFilename();
-            //截取原始文件名的后缀   dfdfdf.png
-            String extension = originalFilename.substring(originalFilename.lastIndexOf("."));
-            //构造新文件名称
-            String objectName = UUID.randomUUID().toString() + extension;
+            if (file == null || file.isEmpty() || file.getSize() > MAX_IMAGE_BYTES) {
+                return Result.error(MessageConstant.UPLOAD_FAILED);
+            }
 
-            //文件的请求路径
-            String filePath = aliOssUtil.upload(file.getBytes(), objectName);
-            return Result.success(filePath);
-        } catch (IOException e) {
-            log.error("文件上传失败：{}", e);
+            String format;
+            String extension;
+            if ("image/jpeg".equalsIgnoreCase(file.getContentType())) {
+                format = "jpg";
+                extension = ".jpg";
+            } else if ("image/png".equalsIgnoreCase(file.getContentType())) {
+                format = "png";
+                extension = ".png";
+            } else {
+                return Result.error(MessageConstant.UPLOAD_FAILED);
+            }
+
+            BufferedImage image = ImageIO.read(file.getInputStream());
+            if (image == null || (long) image.getWidth() * image.getHeight() > MAX_IMAGE_PIXELS) {
+                return Result.error(MessageConstant.UPLOAD_FAILED);
+            }
+
+            ByteArrayOutputStream sanitized = new ByteArrayOutputStream();
+            if (!ImageIO.write(image, format, sanitized)) {
+                return Result.error(MessageConstant.UPLOAD_FAILED);
+            }
+
+            String objectName = UUID.randomUUID() + extension;
+            return Result.success(aliOssUtil.upload(sanitized.toByteArray(), objectName));
+        } catch (IOException | RuntimeException ex) {
+            log.error("image upload failed", ex);
+            return Result.error(MessageConstant.UPLOAD_FAILED);
         }
-
-        return Result.error(MessageConstant.UPLOAD_FAILED);
     }
 }

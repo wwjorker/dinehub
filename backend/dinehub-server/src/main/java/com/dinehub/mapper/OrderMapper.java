@@ -21,6 +21,10 @@ public interface OrderMapper {
      */
     void insert(Orders orders);
 
+    @Select("select * from orders where user_id = #{userId} and request_id = #{requestId}")
+    Orders getByUserIdAndRequestId(@Param("userId") Long userId,
+                                   @Param("requestId") String requestId);
+
     /**
      * 根据订单号和用户id查询订单
      * @param orderNumber

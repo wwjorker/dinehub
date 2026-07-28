@@ -22,6 +22,7 @@ import com.dinehub.vo.OrderPaymentVO;
 import com.dinehub.vo.OrderStatisticsVO;
 import com.dinehub.vo.OrderSubmitVO;
 import com.dinehub.vo.OrderVO;
+import com.dinehub.vo.UserCouponVO;
 import com.dinehub.websocket.WebSocketServer;
 import com.dinehub.config.OrderCancelMQConfiguration;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +30,8 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
@@ -40,6 +43,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
@@ -61,6 +65,8 @@ public class OrderServiceImpl implements OrderService {
     @Autowired
     private ShoppingCartMapper shoppingCartMapper;
     @Autowired
+    private UserCouponMapper userCouponMapper;
+    @Autowired
     private UserMapper userMapper;
     @Autowired
     private WeChatPayUtil weChatPayUtil;
@@ -70,6 +76,8 @@ public class OrderServiceImpl implements OrderService {
     private WebSocketServer webSocketServer;
     @Autowired
     private RabbitTemplate rabbitTemplate;
+    @Autowired
+    private RedisTemplate redisTemplate;
 
     /**
      * 超时取消实现:mq = 下单投递延迟消息(默认);task = 仅依赖定时扫描(对照方案)
@@ -87,6 +95,27 @@ public class OrderServiceImpl implements OrderService {
      */
     @Transactional
     public OrderSubmitVO submitOrder(OrdersSubmitDTO ordersSubmitDTO) {
+
+        Long userId = BaseContext.getCurrentId();
+        String requestId = ordersSubmitDTO.getRequestId();
+        if (requestId == null || requestId.trim().isEmpty()) {
+            throw new OrderBusinessException(MessageConstant.ORDER_REQUEST_ID_REQUIRED);
+        }
+        requestId = requestId.trim();
+        if (requestId.length() > 64 || !requestId.matches("[A-Za-z0-9_-]+")) {
+            throw new OrderBusinessException(MessageConstant.ORDER_REQUEST_ID_INVALID);
+        }
+        ordersSubmitDTO.setRequestId(requestId);
+
+        Orders replay = orderMapper.getByUserIdAndRequestId(userId, requestId);
+        if (replay != null) {
+            return toSubmitVO(replay);
+        }
+
+        Object shopStatus = redisTemplate.opsForValue().get("SHOP_STATUS");
+        if (shopStatus != null && !"1".equals(String.valueOf(shopStatus))) {
+            throw new OrderBusinessException(MessageConstant.SHOP_CLOSED);
+        }
 
         //1. 处理各种业务异常（地址簿为空、桌台无效、购物车数据为空）
         //堂食单带桌台令牌走扫码点单链路,外卖单走地址簿链路
@@ -110,8 +139,6 @@ public class OrderServiceImpl implements OrderService {
         }
 
         //查询当前用户的购物车数据
-        Long userId = BaseContext.getCurrentId();
-
         ShoppingCart shoppingCart = new ShoppingCart();
         shoppingCart.setUserId(userId);
         List<ShoppingCart> shoppingCartList = shoppingCartMapper.list(shoppingCart);
@@ -140,7 +167,28 @@ public class OrderServiceImpl implements OrderService {
         orders.setPackAmount(dineIn ? 0 : totalItems);
         //外卖收固定配送费,堂食没有配送环节
         BigDecimal deliveryFee = dineIn ? BigDecimal.ZERO : DELIVERY_FEE;
-        orders.setAmount(itemsAmount.add(packFee).add(deliveryFee));
+        BigDecimal originalAmount = itemsAmount.add(packFee).add(deliveryFee);
+        BigDecimal discountAmount = BigDecimal.ZERO;
+        UserCouponVO selectedCoupon = null;
+        if (ordersSubmitDTO.getUserCouponId() != null) {
+            selectedCoupon = userCouponMapper.getByIdAndUserId(
+                    ordersSubmitDTO.getUserCouponId(), userId);
+            if (selectedCoupon == null || !UserCoupon.UNUSED.equals(selectedCoupon.getStatus())
+                    || (selectedCoupon.getSeckillEndTime() != null
+                    && LocalDateTime.now().isAfter(selectedCoupon.getSeckillEndTime()))) {
+                throw new OrderBusinessException(MessageConstant.COUPON_NOT_AVAILABLE);
+            }
+            int originalFen = originalAmount.movePointRight(2).intValueExact();
+            int thresholdFen = selectedCoupon.getMinAmount() == null ? 0 : selectedCoupon.getMinAmount();
+            if (originalFen < thresholdFen) {
+                throw new OrderBusinessException(MessageConstant.COUPON_THRESHOLD_NOT_MET);
+            }
+            int discountFen = Math.min(originalFen, selectedCoupon.getDiscountAmount());
+            discountAmount = BigDecimal.valueOf(discountFen, 2);
+        }
+        orders.setOriginalAmount(originalAmount);
+        orders.setDiscountAmount(discountAmount);
+        orders.setAmount(originalAmount.subtract(discountAmount));
         //堂食H5不传配送/餐具选项,这两列非空,给出与外卖端一致的默认值
         if (orders.getDeliveryStatus() == null) {
             orders.setDeliveryStatus(1);
@@ -162,7 +210,23 @@ public class OrderServiceImpl implements OrderService {
         }
         orders.setUserId(userId);
 
-        orderMapper.insert(orders);
+        try {
+            orderMapper.insert(orders);
+        } catch (DuplicateKeyException ex) {
+            Orders existing = orderMapper.getByUserIdAndRequestId(userId, requestId);
+            if (existing != null) {
+                return toSubmitVO(existing);
+            }
+            throw ex;
+        }
+
+        if (selectedCoupon != null) {
+            int reserved = userCouponMapper.reserveIfUnused(
+                    selectedCoupon.getId(), userId, orders.getId());
+            if (reserved == 0) {
+                throw new OrderBusinessException(MessageConstant.COUPON_NOT_AVAILABLE);
+            }
+        }
 
         List<OrderDetail> orderDetailList = new ArrayList<>();
         //3. 向订单明细表插入n条数据
@@ -185,14 +249,19 @@ public class OrderServiceImpl implements OrderService {
         }
 
         //5. 封装VO返回结果
-        OrderSubmitVO orderSubmitVO = OrderSubmitVO.builder()
+        return toSubmitVO(orders);
+    }
+
+    private OrderSubmitVO toSubmitVO(Orders orders) {
+        return OrderSubmitVO.builder()
                 .id(orders.getId())
                 .orderTime(orders.getOrderTime())
                 .orderNumber(orders.getNumber())
                 .orderAmount(orders.getAmount())
+                .originalAmount(orders.getOriginalAmount())
+                .discountAmount(orders.getDiscountAmount())
+                .userCouponId(orders.getUserCouponId())
                 .build();
-
-        return orderSubmitVO;
     }
 
     @Value("${dinehub.shop.address}")
@@ -303,11 +372,31 @@ public class OrderServiceImpl implements OrderService {
         return vo;
     }
 
+    @Transactional
+    public void demoPay(Long id) {
+        Orders order = getOwnedOrder(id);
+        if (!Orders.PENDING_PAYMENT.equals(order.getStatus())) {
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
+        int rows = orderMapper.markPaidIfPending(id, LocalDateTime.now());
+        if (rows == 0) {
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
+        userCouponMapper.markUsedByOrderId(id);
+
+        Map map = new HashMap();
+        map.put("type", 1);
+        map.put("orderId", id);
+        map.put("content", "订单号：" + order.getNumber() + "（开发环境模拟支付）");
+        webSocketServer.sendToAllClient(JSON.toJSONString(map));
+    }
+
     /**
      * 支付成功，修改订单状态
      *
      * @param outTradeNo
      */
+    @Transactional
     public PayCallbackResult paySuccess(String outTradeNo, Integer payerTotalFen) {
         //回调线程没有用户上下文,按订单号定位
         Orders ordersDB = orderMapper.getByNumber(outTradeNo);
@@ -349,6 +438,7 @@ public class OrderServiceImpl implements OrderService {
         map.put("orderId",ordersDB.getId());
         map.put("content","订单号：" + outTradeNo);
 
+        userCouponMapper.markUsedByOrderId(ordersDB.getId());
         String json = JSON.toJSONString(map);
         webSocketServer.sendToAllClient(json);
         return PayCallbackResult.CONFIRMED;
@@ -469,13 +559,13 @@ public class OrderServiceImpl implements OrderService {
      */
     private Orders getOwnedOrder(Long id) {
         Orders orders = orderMapper.getById(id);
-        if (orders == null || !orders.getUserId().equals(BaseContext.getCurrentId())) {
+        if (orders == null || !Objects.equals(orders.getUserId(), BaseContext.getCurrentId())) {
             throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
         }
         return orders;
     }
 
-    public OrderVO details(Long id) {
+    public OrderVO detailsForCurrentUser(Long id) {
         // 根据id查询订单并校验归属,防止横向越权
         Orders orders = getOwnedOrder(id);
 
@@ -490,11 +580,24 @@ public class OrderServiceImpl implements OrderService {
         return orderVO;
     }
 
+    public OrderVO detailsForAdmin(Long id) {
+        Orders orders = orderMapper.getById(id);
+        if (orders == null) {
+            throw new OrderBusinessException(MessageConstant.ORDER_NOT_FOUND);
+        }
+        List<OrderDetail> orderDetailList = orderDetailMapper.getByOrderId(orders.getId());
+        OrderVO orderVO = new OrderVO();
+        BeanUtils.copyProperties(orders, orderVO);
+        orderVO.setOrderDetailList(orderDetailList);
+        return orderVO;
+    }
+
     /**
      * 用户取消订单
      *
      * @param id
      */
+    @Transactional
     public void userCancelById(Long id) throws Exception {
         // 根据id查询订单并校验归属,防止横向越权
         Orders ordersDB = getOwnedOrder(id);
@@ -520,6 +623,7 @@ public class OrderServiceImpl implements OrderService {
         if (rows == 0) {
             throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
         }
+        userCouponMapper.releaseByOrderId(ordersDB.getId());
         if (needRefund) {
             executeRefund(ordersDB);
         }
@@ -655,6 +759,7 @@ public class OrderServiceImpl implements OrderService {
      *
      * @param ordersRejectionDTO
      */
+    @Transactional
     public void rejection(OrdersRejectionDTO ordersRejectionDTO) throws Exception {
         // 根据id查询订单
         Orders ordersDB = orderMapper.getById(ordersRejectionDTO.getId());
@@ -679,6 +784,7 @@ public class OrderServiceImpl implements OrderService {
         if (rows == 0) {
             throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
         }
+        userCouponMapper.releaseByOrderId(ordersDB.getId());
         if (needRefund) {
             executeRefund(ordersDB);
         }
@@ -689,6 +795,7 @@ public class OrderServiceImpl implements OrderService {
      *
      * @param ordersCancelDTO
      */
+    @Transactional
     public void cancel(OrdersCancelDTO ordersCancelDTO) throws Exception {
         // 根据id查询订单
         Orders ordersDB = orderMapper.getById(ordersCancelDTO.getId());
@@ -711,6 +818,7 @@ public class OrderServiceImpl implements OrderService {
         if (rows == 0) {
             throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
         }
+        userCouponMapper.releaseByOrderId(ordersDB.getId());
         if (needRefund) {
             executeRefund(ordersDB);
         }

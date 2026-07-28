@@ -43,7 +43,7 @@ services:
     image: mysql:8.0
     container_name: dinehub-mysql
     ports:
-      - "${DINEHUB_DB_PORT:-3307}:3306"
+      - "${DINEHUB_INFRA_BIND_HOST:-127.0.0.1}:${DINEHUB_DB_PORT:-3307}:3306"
     environment:
       MYSQL_ROOT_PASSWORD: ${DINEHUB_DB_PASSWORD:-root}
       MYSQL_DATABASE: dinehub
@@ -62,7 +62,7 @@ services:
     container_name: dinehub-redis
     command: redis-server --appendonly yes --appendfsync everysec
     ports:
-      - "${DINEHUB_REDIS_PORT:-6379}:6379"
+      - "${DINEHUB_INFRA_BIND_HOST:-127.0.0.1}:${DINEHUB_REDIS_PORT:-6379}:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -75,8 +75,8 @@ services:
     image: rabbitmq:4.1-management-alpine
     container_name: dinehub-rabbitmq
     ports:
-      - "${DINEHUB_MQ_PORT:-5672}:5672"
-      - "${DINEHUB_MQ_MANAGEMENT_PORT:-15672}:15672"
+      - "${DINEHUB_INFRA_BIND_HOST:-127.0.0.1}:${DINEHUB_MQ_PORT:-5672}:5672"
+      - "${DINEHUB_INFRA_BIND_HOST:-127.0.0.1}:${DINEHUB_MQ_MANAGEMENT_PORT:-15672}:15672"
     environment:
       RABBITMQ_DEFAULT_USER: ${DINEHUB_MQ_USERNAME:-dinehub}
       RABBITMQ_DEFAULT_PASS: ${DINEHUB_MQ_PASSWORD:-dinehub}

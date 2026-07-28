@@ -9,6 +9,10 @@ import java.time.LocalDateTime;
 
 @Data
 public class OrdersSubmitDTO implements Serializable {
+    // Client-generated idempotency key. Replays by the same user return one order.
+    private String requestId;
+    // User coupon holding id. Null means no coupon is applied.
+    private Long userCouponId;
     //地址簿id(外卖单必填,堂食单为空)
     private Long addressBookId;
     //桌台扫码令牌(堂食单必填,外卖单为空)

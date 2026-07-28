@@ -1,47 +1,144 @@
 :root {
-  --brand: #d43f2f;
-  --brand-light: #fbeeec;
-  --ink: #2b2018;
-  --paper: #f7f4f0;
+  --brand: #b83a2f;
+  --brand-dark: #8e2b24;
+  --brand-soft: #f5e5df;
+  --forest: #274c3a;
+  --ink: #27231f;
+  --muted: #77716a;
+  --line: #e7e1da;
+  --paper: #f5f2ed;
+  --card: #fffdf9;
+  font-synthesis: none;
 }
+
+* { box-sizing: border-box; }
+
+html, body, #app { min-height: 100%; }
 
 body {
   margin: 0;
   background: var(--paper);
   color: var(--ink);
-  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
+
+button, input, textarea { font: inherit; }
 
 .page {
-  padding-bottom: 66px;
   min-height: 100vh;
-  box-sizing: border-box;
+  padding-bottom: 76px;
 }
 
-.dish-avatar {
-  width: 52px;
-  height: 52px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-size: 20px;
-  font-weight: 600;
-  flex: none;
+.page-head {
+  padding: 18px 18px 14px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
 }
 
-.price {
+.eyebrow {
   color: var(--brand);
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
 }
 
-/* 桌面端以手机壳宽度居中展示,fixed 组件跟随收窄 */
-#app { max-width: 480px; margin: 0 auto; }
+.page-title {
+  margin: 5px 0 0;
+  font-family: "STSong", "Songti SC", serif;
+  font-size: 25px;
+  line-height: 1.25;
+}
+
+.page-subtitle {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.section-card {
+  margin: 12px;
+  padding: 16px;
+  border: 1px solid rgba(68, 54, 43, 0.08);
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: 0 7px 24px rgba(67, 49, 36, 0.04);
+}
+
+.section-title {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.muted { color: var(--muted); }
+.price { color: var(--brand); font-weight: 700; }
+.money { font-variant-numeric: tabular-nums; }
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #5f9c71;
+  box-shadow: 0 0 0 4px rgba(95, 156, 113, 0.12);
+}
+
+.status-dot.closed {
+  background: #a49c94;
+  box-shadow: 0 0 0 4px rgba(164, 156, 148, 0.14);
+}
+
+.product-mark {
+  width: 58px;
+  height: 58px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 13px 13px 13px 5px;
+  background: #efe1d5;
+  color: var(--brand-dark);
+  font-family: "STSong", "Songti SC", serif;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.empty-action { margin-top: 12px; }
+
+#app {
+  max-width: 520px;
+  margin: 0 auto;
+  background: var(--paper);
+  box-shadow: 0 0 0 1px rgba(50, 40, 32, 0.03);
+}
+
 .van-tabbar--fixed,
 .van-submit-bar,
-.van-popup--bottom {
-  max-width: 480px;
+.van-popup--bottom,
+.van-action-sheet {
+  max-width: 520px;
   left: 50% !important;
   transform: translateX(-50%);
+}
+
+.van-nav-bar {
+  background: var(--card);
+}
+
+.van-nav-bar__title {
+  font-family: "STSong", "Songti SC", serif;
+  font-size: 19px;
+}
+
+.van-button--danger {
+  background: var(--brand);
+  border-color: var(--brand);
+}
+
+.van-tabs__line { background: var(--brand); }
+
+@media (min-width: 740px) {
+  body { padding: 18px 0; }
+  #app { min-height: calc(100vh - 36px); border-radius: 20px; overflow: hidden; }
 }

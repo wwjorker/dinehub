@@ -31,6 +31,10 @@ public class UserCouponVO implements Serializable {
     //使用门槛,单位分
     private Integer minAmount;
 
+    private Integer type;
+
+    private LocalDateTime seckillEndTime;
+
     //状态 1未使用 2已使用 3已过期
     private Integer status;
 

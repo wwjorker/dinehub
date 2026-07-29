@@ -61,28 +61,35 @@ public class UserServiceImpl implements UserService {
     }
 
     /**
-     * 演示登录:以 demo:{昵称} 作为openid查找或创建用户,
-     * 让没有微信环境的H5演示端也能获得完整的用户身份
+     * 演示登录按浏览器设备随机标识隔离账号，昵称只作为展示资料。
+     * deviceId 不是密码，因此这个入口仍然只允许在开发环境开启。
      */
-    public User demoLogin(String nickname) {
+    public User demoLogin(String nickname, String deviceId) {
         //昵称仅允许中文/字母/数字,长度1~12,防注入与脏数据
         if (nickname == null || !nickname.trim().matches("[一-龥A-Za-z0-9]{1,12}")) {
             throw new LoginFailedException(MessageConstant.LOGIN_FAILED);
         }
-        String openid = "demo:" + nickname.trim();
+        if (deviceId == null || !deviceId.trim().matches("[A-Za-z0-9_-]{20,64}")) {
+            throw new LoginFailedException(MessageConstant.LOGIN_FAILED);
+        }
+        String displayName = nickname.trim();
+        String openid = "demo:" + deviceId.trim();
         User user = userMapper.getByOpenid(openid);
         if (user == null) {
             try {
                 user = User.builder()
                         .openid(openid)
-                        .name(nickname.trim())
+                        .name(displayName)
                         .createTime(LocalDateTime.now())
                         .build();
                 userMapper.insert(user);
             } catch (DuplicateKeyException e) {
-                //并发同昵称首登:唯一键冲突后重查,两个请求拿到同一用户
+                //同一设备并发首登时，唯一键冲突后重查
                 user = userMapper.getByOpenid(openid);
             }
+        } else if (!displayName.equals(user.getName())) {
+            userMapper.updateName(user.getId(), displayName);
+            user.setName(displayName);
         }
         return user;
     }

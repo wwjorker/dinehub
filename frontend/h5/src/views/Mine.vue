@@ -3,25 +3,30 @@ import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showConfirmDialog } from 'vant'
 import { api } from '../api'
-import { store, logout } from '../store'
+import { logout, store } from '../store'
 
 const router = useRouter()
-const tab = ref(0)
-const coupons = ref([])
-const orders = ref([])
-
-const fen2yuan = (fen) => (fen / 100).toFixed(0)
-const couponStatus = { 1: ['未使用', 'success'], 2: ['已使用', 'default'], 3: ['已过期', 'default'] }
-const orderStatus = { 1: '待付款', 2: '待接单', 3: '已接单', 4: '派送中', 5: '已完成', 6: '已取消' }
+const summary = ref({ coupons: 0, orders: 0, pending: 0 })
 
 async function load() {
-  coupons.value = await api.myCoupons()
-  const page = await api.historyOrders(1, 20)
-  orders.value = page.records || []
+  const [coupons, orders, waitingPay, waitingAccept, making, delivering] = await Promise.all([
+    api.myCoupons(),
+    api.historyOrders(1, 1),
+    api.historyOrders(1, 1, 1),
+    api.historyOrders(1, 1, 2),
+    api.historyOrders(1, 1, 3),
+    api.historyOrders(1, 1, 4)
+  ])
+  summary.value = {
+    coupons: coupons.filter((item) => item.status === 1).length,
+    orders: Number(orders.total || 0),
+    pending: [waitingPay, waitingAccept, making, delivering]
+      .reduce((total, page) => total + Number(page.total || 0), 0)
+  }
 }
 
 async function doLogout() {
-  await showConfirmDialog({ message: '退出登录?' })
+  await showConfirmDialog({ title: '退出登录', message: '退出后需要重新输入演示昵称。' })
   logout()
   router.replace('/login')
 }
@@ -30,65 +35,56 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="page">
-    <div class="head">
-      <div class="avatar">{{ (store.nickname || '客')[0] }}</div>
-      <div>
-        <div class="nick">{{ store.nickname || '顾客' }}</div>
-        <div class="sub" v-if="store.tableName">当前桌台:{{ store.tableName }}</div>
+  <div class="page mine-page">
+    <header class="profile">
+      <div class="profile-top">
+        <div class="avatar">{{ (store.nickname || '客').slice(0, 1) }}</div>
+        <div>
+          <p class="eyebrow">我的账户</p>
+          <h1>{{ store.nickname || '顾客' }}</h1>
+          <span>{{ store.tableName ? `当前绑定 ${store.tableName} 桌` : '当前未绑定堂食桌台' }}</span>
+        </div>
       </div>
-      <van-button size="mini" plain style="margin-left:auto" @click="doLogout">退出</van-button>
-    </div>
+      <div class="profile-summary">
+        <button @click="router.push('/orders?filter=all')"><strong>{{ summary.orders }}</strong><span>全部订单</span></button>
+        <button @click="router.push('/orders?filter=making')"><strong>{{ summary.pending }}</strong><span>进行中</span></button>
+        <button @click="router.push('/coupons?filter=1')"><strong>{{ summary.coupons }}</strong><span>可用券</span></button>
+      </div>
+    </header>
 
-    <van-tabs v-model:active="tab" color="#d43f2f">
-      <van-tab title="我的优惠券">
-        <van-empty v-if="coupons.length === 0" description="还没有优惠券,去秒杀页抢一张" />
-        <div class="coupon" v-for="c in coupons" :key="c.id">
-          <div class="amount">￥<b>{{ fen2yuan(c.discountAmount) }}</b></div>
-          <div class="info">
-            <div class="title">{{ c.title }}</div>
-            <div class="sub">满{{ fen2yuan(c.minAmount) }}可用 · {{ (c.createTime || '').replace('T', ' ') }}领取</div>
-          </div>
-          <van-tag :type="couponStatus[c.status]?.[1]">{{ couponStatus[c.status]?.[0] }}</van-tag>
-        </div>
-      </van-tab>
+    <section class="service-list">
+      <button @click="router.push('/orders')"><van-icon name="orders-o" /><span><b>我的订单</b><small>付款、取消、催单与再来一单</small></span><van-icon name="arrow" /></button>
+      <button @click="router.push('/coupons')"><van-icon name="coupon-o" /><span><b>我的优惠券</b><small>查看可用、占用和已使用状态</small></span><van-icon name="arrow" /></button>
+      <button @click="router.push('/addresses')"><van-icon name="location-o" /><span><b>收货地址</b><small>外送订单的地址管理</small></span><van-icon name="arrow" /></button>
+    </section>
 
-      <van-tab title="我的订单">
-        <van-empty v-if="orders.length === 0" description="暂无订单" />
-        <div class="order" v-for="o in orders" :key="o.id">
-          <div class="row">
-            <span class="no">单号 {{ o.number }}</span>
-            <van-tag :type="o.status === 6 ? 'default' : 'danger'" plain>{{ orderStatus[o.status] }}</van-tag>
-          </div>
-          <div class="row sub">
-            <span>{{ o.fulfillmentType === 2 ? `堂食 · ${o.address}` : '外卖配送' }}</span>
-            <span>{{ (o.orderTime || '').replace('T', ' ') }}</span>
-          </div>
-          <div class="row items" v-if="o.orderDetailList">
-            {{ o.orderDetailList.map(d => `${d.name}×${d.number}`).join('、') }}
-          </div>
-          <div class="row">
-            <span></span>
-            <span class="price">￥{{ o.amount }}</span>
-          </div>
-        </div>
-      </van-tab>
-    </van-tabs>
+    <p class="environment-note">当前为本地体验环境，支付不会产生真实扣款。</p>
+
+    <button class="logout" @click="doLogout">退出当前账号</button>
   </div>
 </template>
 
 <style scoped>
-.head { display: flex; align-items: center; gap: 12px; padding: 26px 16px; background: #fff; }
-.avatar { width: 52px; height: 52px; border-radius: 50%; background: #d43f2f; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 22px; }
-.nick { font-weight: 600; font-size: 17px; }
-.sub { color: #999; font-size: 12px; margin-top: 2px; }
-.coupon { display: flex; align-items: center; gap: 12px; background: #fff; border-radius: 12px; padding: 14px; margin: 10px; }
-.coupon .amount { color: #d43f2f; }
-.coupon .amount b { font-size: 26px; }
-.coupon .info { flex: 1; }
-.title { font-weight: 600; }
-.order { background: #fff; border-radius: 12px; padding: 12px 14px; margin: 10px; }
-.row { display: flex; justify-content: space-between; align-items: center; margin: 3px 0; }
-.no { font-size: 13px; color: #666; }
-.items { color: #999; font-size: 12px; }
+.profile { padding: 25px 20px 0; background: #263c31; color: white; }
+.profile-top { display: flex; align-items: center; gap: 14px; }
+.avatar { width: 56px; height: 56px; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.35); border-radius: 50%; font: 26px "STSong", serif; }
+.profile .eyebrow { margin: 0; color: #d8b892; font-size: 11px; }
+.profile h1 { margin: 4px 0; font: 650 23px/1.3 system-ui, sans-serif; }
+.profile-top span { color: rgba(255,255,255,.68); font-size: 12px; }
+.profile-summary { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 23px; padding: 15px 0; border-top: 1px solid rgba(255,255,255,.14); }
+.profile-summary button { border: 0; border-right: 1px solid rgba(255,255,255,.1); background: transparent; color: white; text-align: center; cursor: pointer; }
+.profile-summary button:last-child { border: 0; }
+.profile-summary strong, .profile-summary span { display: block; }
+.profile-summary strong { font-size: 19px; }
+.profile-summary span { margin-top: 3px; color: rgba(255,255,255,.62); font-size: 11px; }
+.service-list { margin: 12px; border: 1px solid rgba(65,49,38,.08); border-radius: 14px; overflow: hidden; background: var(--card); }
+.service-list button { display: grid; grid-template-columns: 28px 1fr 18px; align-items: center; width: 100%; padding: 15px; border: 0; border-bottom: 1px solid var(--line); background: transparent; text-align: left; }
+.service-list button:last-child { border-bottom: 0; }
+.service-list > button > i:first-child { color: var(--brand); font-size: 20px; }
+.service-list b, .service-list small { display: block; }
+.service-list b { font-size: 14px; }
+.service-list small { margin-top: 4px; color: var(--muted); font-size: 12px; }
+.service-list > button > i:last-child { color: #b7afa7; }
+.environment-note { margin: 18px 12px 0; color: #918980; font-size: 11px; text-align: center; }
+.logout { display: block; margin: 22px auto; border: 0; background: transparent; color: var(--muted); font-size: 12px; }
 </style>

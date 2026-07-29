@@ -41,4 +41,9 @@ public interface DiningTableService {
      * 根据扫码令牌查询可用桌台
      */
     DiningTable getAvailableByToken(String qrToken);
+
+    /**
+     * 让旧二维码立即失效并生成新的不可预测令牌。
+     */
+    DiningTable rotateQrToken(Long id);
 }

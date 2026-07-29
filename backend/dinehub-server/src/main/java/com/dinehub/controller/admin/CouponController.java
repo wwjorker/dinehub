@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import javax.validation.Valid;
 
 /**
  * 优惠券管理:创建、发布(预热秒杀库存)
@@ -35,7 +36,7 @@ public class CouponController {
 
     @PostMapping
     @ApiOperation("新增优惠券")
-    public Result<Coupon> save(@RequestBody CouponDTO couponDTO) {
+    public Result<Coupon> save(@Valid @RequestBody CouponDTO couponDTO) {
         log.info("新增优惠券:{}", couponDTO);
         return Result.success(couponService.save(couponDTO));
     }

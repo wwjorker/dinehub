@@ -33,9 +33,9 @@ public interface EmployeeMapper {
      * 插入员工数据
      * @param employee
      */
-    @Insert("insert into employee (name, username, password, phone, sex, id_number, create_time, update_time, create_user, update_user,status) " +
+    @Insert("insert into employee (name, username, password, phone, sex, id_number, create_time, update_time, create_user, update_user,status,role,must_change_password) " +
             "values " +
-            "(#{name},#{username},#{password},#{phone},#{sex},#{idNumber},#{createTime},#{updateTime},#{createUser},#{updateUser},#{status})")
+            "(#{name},#{username},#{password},#{phone},#{sex},#{idNumber},#{createTime},#{updateTime},#{createUser},#{updateUser},#{status},#{role},#{mustChangePassword})")
     @AutoFill(value = OperationType.INSERT)
     void insert(Employee employee);
 
@@ -60,4 +60,8 @@ public interface EmployeeMapper {
      */
     @Select("select * from employee where id = #{id}")
     Employee getById(Long id);
+
+    @Update("update employee set password = #{password}, must_change_password = #{mustChange} where id = #{id}")
+    int updatePassword(@Param("id") Long id, @Param("password") String password,
+                       @Param("mustChange") boolean mustChange);
 }

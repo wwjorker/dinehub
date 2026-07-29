@@ -36,4 +36,10 @@ public class MessageConstant {
     public static final String COUPON_ALREADY_PUBLISHED = "优惠券已发布,不能重复发布";
     public static final String SECKILL_BUSY = "系统繁忙,请重试";
 
+    public static final String SHOP_CLOSED = "店铺已打烊，暂时无法下单";
+    public static final String ORDER_REQUEST_ID_REQUIRED = "下单请求标识不能为空";
+    public static final String ORDER_REQUEST_ID_INVALID = "下单请求标识格式不正确";
+    public static final String COUPON_NOT_AVAILABLE = "优惠券不存在、不可用或已被占用";
+    public static final String COUPON_THRESHOLD_NOT_MET = "订单金额未达到优惠券使用门槛";
+
 }

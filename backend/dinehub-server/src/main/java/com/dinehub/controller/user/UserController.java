@@ -77,7 +77,7 @@ public class UserController {
         if (!demoLoginEnabled) {
             return Result.error(MessageConstant.LOGIN_FAILED);
         }
-        User user = userService.demoLogin(userLoginDTO.getNickname());
+        User user = userService.demoLogin(userLoginDTO.getNickname(), userLoginDTO.getDeviceId());
 
         Map<String, Object> claims = new HashMap<>();
         claims.put(JwtClaimsConstant.USER_ID, user.getId());

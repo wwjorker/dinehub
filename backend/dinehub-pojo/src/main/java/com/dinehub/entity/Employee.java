@@ -37,6 +37,10 @@ public class Employee implements Serializable {
 
     private Integer status;
 
+    private String role;
+
+    private Boolean mustChangePassword;
+
     //@JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime createTime;
 

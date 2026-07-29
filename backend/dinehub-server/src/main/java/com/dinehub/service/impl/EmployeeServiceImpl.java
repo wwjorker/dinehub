@@ -9,10 +9,12 @@ import com.dinehub.context.BaseContext;
 import com.dinehub.dto.EmployeeDTO;
 import com.dinehub.dto.EmployeeLoginDTO;
 import com.dinehub.dto.EmployeePageQueryDTO;
+import com.dinehub.dto.PasswordEditDTO;
+import com.dinehub.dto.PasswordResetDTO;
 import com.dinehub.entity.Employee;
-import com.dinehub.exception.AccountLockedException;
-import com.dinehub.exception.AccountNotFoundException;
 import com.dinehub.exception.PasswordErrorException;
+import com.dinehub.exception.PasswordEditFailedException;
+import com.dinehub.exception.BaseException;
 import com.dinehub.mapper.EmployeeMapper;
 import com.dinehub.result.PageResult;
 import com.dinehub.service.EmployeeService;
@@ -22,8 +24,9 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.DigestUtils;
 
-import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
 
 @Service
 public class EmployeeServiceImpl implements EmployeeService {
@@ -49,8 +52,7 @@ public class EmployeeServiceImpl implements EmployeeService {
 
         //2、处理各种异常情况（用户名不存在、密码不对、账号被锁定）
         if (employee == null) {
-            //账号不存在
-            throw new AccountNotFoundException(MessageConstant.ACCOUNT_NOT_FOUND);
+            throw new PasswordErrorException(MessageConstant.LOGIN_FAILED);
         }
 
         //密码比对:新账户是BCrypt;历史MD5账户校验通过后原子升级为BCrypt
@@ -58,21 +60,20 @@ public class EmployeeServiceImpl implements EmployeeService {
         if (stored != null && stored.startsWith("$2")) {
             if (!passwordEncoder.matches(password, stored)) {
                 //密码错误
-                throw new PasswordErrorException(MessageConstant.PASSWORD_ERROR);
+                throw new PasswordErrorException(MessageConstant.LOGIN_FAILED);
             }
         } else {
             String md5 = DigestUtils.md5DigestAsHex(password.getBytes());
             if (!md5.equals(stored)) {
                 //密码错误
-                throw new PasswordErrorException(MessageConstant.PASSWORD_ERROR);
+                throw new PasswordErrorException(MessageConstant.LOGIN_FAILED);
             }
             //平滑迁移:条件更新仅在密码仍为旧哈希时生效,并发登录只会有一方升级
             employeeMapper.upgradePassword(employee.getId(), stored, passwordEncoder.encode(password));
         }
 
         if (employee.getStatus() == StatusConstant.DISABLE) {
-            //账号被锁定
-            throw new AccountLockedException(MessageConstant.ACCOUNT_LOCKED);
+            throw new PasswordErrorException(MessageConstant.LOGIN_FAILED);
         }
 
         //3、返回实体对象
@@ -94,7 +95,12 @@ public class EmployeeServiceImpl implements EmployeeService {
         employee.setStatus(StatusConstant.ENABLE);
 
         //设置密码，默认密码123456(BCrypt存储)
-        employee.setPassword(passwordEncoder.encode(PasswordConstant.DEFAULT_PASSWORD));
+        if (employeeDTO.getPassword() == null || employeeDTO.getPassword().trim().length() < 8) {
+            throw new PasswordEditFailedException("请为新员工设置至少8位的临时密码");
+        }
+        employee.setPassword(passwordEncoder.encode(employeeDTO.getPassword()));
+        employee.setRole(normalizeRole(employeeDTO.getRole()));
+        employee.setMustChangePassword(true);
 
         //设置当前记录的创建时间和修改时间
         //employee.setCreateTime(LocalDateTime.now());
@@ -133,6 +139,12 @@ public class EmployeeServiceImpl implements EmployeeService {
      * @param id
      */
     public void startOrStop(Integer status, Long id) {
+        if (!Objects.equals(status, StatusConstant.ENABLE) && !Objects.equals(status, StatusConstant.DISABLE)) {
+            throw new BaseException("账号状态不正确");
+        }
+        if (Objects.equals(BaseContext.getCurrentId(), id)) {
+            throw new BaseException("不能禁用或启用当前登录账号");
+        }
         // update employee set status = ? where id = ?
 
         /*Employee employee = new Employee();
@@ -155,7 +167,9 @@ public class EmployeeServiceImpl implements EmployeeService {
      */
     public Employee getById(Long id) {
         Employee employee = employeeMapper.getById(id);
-        employee.setPassword("****");
+        if (employee == null) {
+            throw new BaseException("员工不存在");
+        }
         return employee;
     }
 
@@ -167,10 +181,54 @@ public class EmployeeServiceImpl implements EmployeeService {
     public void update(EmployeeDTO employeeDTO) {
         Employee employee = new Employee();
         BeanUtils.copyProperties(employeeDTO, employee);
+        employee.setPassword(null);
+        employee.setRole(normalizeRole(employeeDTO.getRole()));
 
         //employee.setUpdateTime(LocalDateTime.now());
         //employee.setUpdateUser(BaseContext.getCurrentId());
 
         employeeMapper.update(employee);
+    }
+
+    @Override
+    public void changePassword(PasswordEditDTO dto) {
+        Long currentId = BaseContext.getCurrentId();
+        Employee employee = employeeMapper.getById(currentId);
+        if (employee == null || !passwordMatches(dto.getOldPassword(), employee.getPassword())) {
+            throw new PasswordEditFailedException("当前密码不正确");
+        }
+        if (!dto.getNewPassword().equals(dto.getConfirmPassword())) {
+            throw new PasswordEditFailedException("两次输入的新密码不一致");
+        }
+        if (dto.getOldPassword().equals(dto.getNewPassword())) {
+            throw new PasswordEditFailedException("新密码不能与当前密码相同");
+        }
+        employeeMapper.updatePassword(currentId, passwordEncoder.encode(dto.getNewPassword()), false);
+    }
+
+    @Override
+    public void resetPassword(Long id, PasswordResetDTO dto) {
+        if (employeeMapper.getById(id) == null) {
+            throw new BaseException("员工不存在");
+        }
+        employeeMapper.updatePassword(id, passwordEncoder.encode(dto.getNewPassword()), true);
+    }
+
+    private boolean passwordMatches(String raw, String stored) {
+        if (stored == null) {
+            return false;
+        }
+        if (stored.startsWith("$2")) {
+            return passwordEncoder.matches(raw, stored);
+        }
+        return DigestUtils.md5DigestAsHex(raw.getBytes()).equals(stored);
+    }
+
+    private String normalizeRole(String role) {
+        String normalized = role == null ? "OPERATOR" : role.trim().toUpperCase(Locale.ROOT);
+        if (!"ADMIN".equals(normalized) && !"OPERATOR".equals(normalized)) {
+            throw new BaseException("员工角色不正确");
+        }
+        return normalized;
     }
 }

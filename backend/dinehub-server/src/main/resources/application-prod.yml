@@ -14,6 +14,9 @@ dinehub:
     user-secret-key: ${DINEHUB_JWT_USER_SECRET}
   demo-login:
     enabled: false
+  upload:
+    local-enabled: false
+    local-directory: ${DINEHUB_UPLOAD_DIRECTORY:./uploads}
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     host: ${DINEHUB_DB_HOST}

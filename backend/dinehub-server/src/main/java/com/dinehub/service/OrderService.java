@@ -53,7 +53,15 @@ public interface OrderService {
      * @param id
      * @return
      */
-    OrderVO details(Long id);
+    OrderVO detailsForCurrentUser(Long id);
+
+    OrderVO detailsForAdmin(Long id);
+
+    /**
+     * Development-only simulated payment. The exposing controller is only
+     * loaded under the dev profile.
+     */
+    void demoPay(Long id);
 
     /**
      * 用户取消订单

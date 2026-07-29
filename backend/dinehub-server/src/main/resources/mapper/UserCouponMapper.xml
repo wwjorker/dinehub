@@ -4,11 +4,20 @@
 <mapper namespace="com.dinehub.mapper.UserCouponMapper">
 
     <select id="listByUserId" resultType="com.dinehub.vo.UserCouponVO">
-        select uc.id, uc.coupon_id, c.title, c.discount_amount, c.min_amount, uc.status, uc.create_time
+        select uc.id, uc.coupon_id, c.title, c.discount_amount, c.min_amount,
+               c.type, c.seckill_end_time, uc.status, uc.create_time
         from user_coupon uc
         left join coupon c on c.id = uc.coupon_id
         where uc.user_id = #{userId}
         order by uc.create_time desc
+    </select>
+
+    <select id="getByIdAndUserId" resultType="com.dinehub.vo.UserCouponVO">
+        select uc.id, uc.coupon_id, c.title, c.discount_amount, c.min_amount,
+               c.type, c.seckill_end_time, uc.status, uc.create_time
+        from user_coupon uc
+        inner join coupon c on c.id = uc.coupon_id and c.status = 1
+        where uc.id = #{id} and uc.user_id = #{userId}
     </select>
 
 </mapper>

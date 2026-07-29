@@ -13,9 +13,10 @@ public interface UserService {
     User wxLogin(UserLoginDTO userLoginDTO);
 
     /**
-     * 演示登录:凭昵称找到或创建用户(无微信环境的H5演示用)
+     * 演示登录:按当前设备隔离用户，昵称仅作为展示资料
      * @param nickname
+     * @param deviceId
      * @return
      */
-    User demoLogin(String nickname);
+    User demoLogin(String nickname, String deviceId);
 }

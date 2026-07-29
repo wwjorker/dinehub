@@ -23,6 +23,7 @@ public class UserCoupon implements Serializable {
     public static final Integer UNUSED = 1;
     public static final Integer USED = 2;
     public static final Integer EXPIRED = 3;
+    public static final Integer RESERVED = 4;
 
     private static final long serialVersionUID = 1L;
 

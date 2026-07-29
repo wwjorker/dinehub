@@ -15,8 +15,13 @@ import com.dinehub.mapper.DiningTableMapper;
 import com.dinehub.mapper.OrderDetailMapper;
 import com.dinehub.mapper.OrderMapper;
 import com.dinehub.mapper.ShoppingCartMapper;
+import com.dinehub.mapper.UserCouponMapper;
 import com.dinehub.utils.WeChatPayUtil;
+import com.dinehub.vo.OrderSubmitVO;
+import com.dinehub.vo.UserCouponVO;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,6 +44,8 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -58,7 +65,13 @@ class OrderServiceImplTest {
     @Mock
     private ShoppingCartMapper shoppingCartMapper;
     @Mock
+    private UserCouponMapper userCouponMapper;
+    @Mock
     private RabbitTemplate rabbitTemplate;
+    @Mock
+    private RedisTemplate redisTemplate;
+    @Mock
+    private ValueOperations valueOperations;
     @Mock
     private com.dinehub.properties.WeChatProperties weChatProperties;
     @Mock
@@ -71,6 +84,8 @@ class OrderServiceImplTest {
     void setUp() {
         BaseContext.setCurrentId(USER_ID);
         ReflectionTestUtils.setField(orderService, "cancelMode", "mq");
+        lenient().when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        lenient().when(valueOperations.get("SHOP_STATUS")).thenReturn(1);
     }
 
     @AfterEach
@@ -93,6 +108,7 @@ class OrderServiceImplTest {
         stubCartWithOneItem();
 
         OrdersSubmitDTO dto = new OrdersSubmitDTO();
+        dto.setRequestId("req-dine-in");
         dto.setTableToken("tok-7");
         dto.setAmount(new BigDecimal("36.00"));
 
@@ -123,6 +139,7 @@ class OrderServiceImplTest {
         stubCartWithOneItem();
 
         OrdersSubmitDTO dto = new OrdersSubmitDTO();
+        dto.setRequestId("req-task-mode");
         dto.setTableToken("tok-7");
         dto.setAmount(new BigDecimal("36.00"));
 
@@ -136,6 +153,9 @@ class OrderServiceImplTest {
         AddressBook addressBook = new AddressBook();
         addressBook.setId(3L);
         addressBook.setUserId(USER_ID);
+        addressBook.setProvinceName("江苏省");
+        addressBook.setCityName("南京市");
+        addressBook.setDistrictName("玄武区");
         addressBook.setDetail("中山路100号");
         addressBook.setPhone("13800000000");
         addressBook.setConsignee("张三");
@@ -143,6 +163,7 @@ class OrderServiceImplTest {
         stubCartWithOneItem();
 
         OrdersSubmitDTO dto = new OrdersSubmitDTO();
+        dto.setRequestId("req-delivery");
         dto.setAddressBookId(3L);
         dto.setAmount(new BigDecimal("36.00"));
 
@@ -153,7 +174,7 @@ class OrderServiceImplTest {
         Orders saved = captor.getValue();
         assertEquals(Orders.DELIVERY, saved.getFulfillmentType());
         assertNull(saved.getTableId());
-        assertEquals("中山路100号", saved.getAddress());
+        assertEquals("江苏省 南京市 玄武区 中山路100号", saved.getAddress());
         assertEquals("张三", saved.getConsignee());
     }
 
@@ -162,6 +183,7 @@ class OrderServiceImplTest {
         when(diningTableMapper.getByToken("bad")).thenReturn(null);
 
         OrdersSubmitDTO dto = new OrdersSubmitDTO();
+        dto.setRequestId("req-invalid-table");
         dto.setTableToken("bad");
 
         assertThrows(OrderBusinessException.class, () -> orderService.submitOrder(dto));
@@ -174,6 +196,7 @@ class OrderServiceImplTest {
         when(diningTableMapper.getByToken("tok-7")).thenReturn(table);
 
         OrdersSubmitDTO dto = new OrdersSubmitDTO();
+        dto.setRequestId("req-disabled-table");
         dto.setTableToken("tok-7");
 
         assertThrows(OrderBusinessException.class, () -> orderService.submitOrder(dto));
@@ -185,6 +208,7 @@ class OrderServiceImplTest {
         when(addressBookMapper.getById(anyLong())).thenReturn(null);
 
         OrdersSubmitDTO dto = new OrdersSubmitDTO();
+        dto.setRequestId("req-missing-address");
         dto.setAddressBookId(99L);
 
         assertThrows(AddressBookBusinessException.class, () -> orderService.submitOrder(dto));
@@ -304,8 +328,100 @@ class OrderServiceImplTest {
         when(shoppingCartMapper.list(any())).thenReturn(Collections.emptyList());
 
         OrdersSubmitDTO dto = new OrdersSubmitDTO();
+        dto.setRequestId("req-empty-cart");
         dto.setTableToken("tok-7");
 
         assertThrows(ShoppingCartBusinessException.class, () -> orderService.submitOrder(dto));
+    }
+
+    @Test
+    void repeatedRequestReturnsTheExistingOrderWithoutWritingAgain() {
+        Orders existing = Orders.builder()
+                .id(88L)
+                .userId(USER_ID)
+                .requestId("req-replay")
+                .number("N88")
+                .amount(new BigDecimal("31.00"))
+                .originalAmount(new BigDecimal("36.00"))
+                .discountAmount(new BigDecimal("5.00"))
+                .orderTime(LocalDateTime.now())
+                .build();
+        when(orderMapper.getByUserIdAndRequestId(USER_ID, "req-replay")).thenReturn(existing);
+
+        OrdersSubmitDTO dto = new OrdersSubmitDTO();
+        dto.setRequestId("req-replay");
+        OrderSubmitVO result = orderService.submitOrder(dto);
+
+        assertEquals(88L, result.getId());
+        assertEquals(new BigDecimal("31.00"), result.getOrderAmount());
+        verify(orderMapper, never()).insert(any());
+        verify(shoppingCartMapper, never()).deleteByUserId(anyLong());
+    }
+
+    @Test
+    void closedShopIsEnforcedByTheServiceLayer() {
+        when(valueOperations.get("SHOP_STATUS")).thenReturn(0);
+        OrdersSubmitDTO dto = new OrdersSubmitDTO();
+        dto.setRequestId("req-closed");
+
+        assertThrows(OrderBusinessException.class, () -> orderService.submitOrder(dto));
+        verify(orderMapper, never()).insert(any());
+    }
+
+    @Test
+    void missingShopStatusFailsClosed() {
+        when(valueOperations.get("SHOP_STATUS")).thenReturn(null);
+        OrdersSubmitDTO dto = new OrdersSubmitDTO();
+        dto.setRequestId("req-status-missing");
+
+        assertThrows(OrderBusinessException.class, () -> orderService.submitOrder(dto));
+        verify(orderMapper, never()).insert(any());
+    }
+
+    @Test
+    void couponDiscountIsCalculatedAndReservedByTheServer() {
+        DiningTable table = DiningTable.builder().id(7L).name("A07")
+                .status(StatusConstant.ENABLE).build();
+        when(diningTableMapper.getByToken("tok-7")).thenReturn(table);
+        stubCartWithOneItem();
+
+        UserCouponVO coupon = UserCouponVO.builder()
+                .id(10L)
+                .couponId(5L)
+                .discountAmount(500)
+                .minAmount(3000)
+                .status(com.dinehub.entity.UserCoupon.UNUSED)
+                .seckillEndTime(LocalDateTime.now().plusDays(1))
+                .build();
+        when(userCouponMapper.getByIdAndUserId(10L, USER_ID)).thenReturn(coupon);
+        doAnswer(invocation -> {
+            Orders saved = invocation.getArgument(0);
+            saved.setId(91L);
+            return null;
+        }).when(orderMapper).insert(any(Orders.class));
+        when(userCouponMapper.reserveIfUnused(10L, USER_ID, 91L)).thenReturn(1);
+
+        OrdersSubmitDTO dto = new OrdersSubmitDTO();
+        dto.setRequestId("req-coupon");
+        dto.setTableToken("tok-7");
+        dto.setUserCouponId(10L);
+
+        OrderSubmitVO result = orderService.submitOrder(dto);
+
+        assertEquals(new BigDecimal("36.00"), result.getOriginalAmount());
+        assertEquals(new BigDecimal("5.00"), result.getDiscountAmount());
+        assertEquals(new BigDecimal("31.00"), result.getOrderAmount());
+        verify(userCouponMapper).reserveIfUnused(10L, USER_ID, 91L);
+    }
+
+    @Test
+    void adminDetailsDoNotReuseUserOwnershipChecks() {
+        Orders anotherUsersOrder = Orders.builder().id(77L).userId(999L).build();
+        when(orderMapper.getById(77L)).thenReturn(anotherUsersOrder);
+        when(orderDetailMapper.getByOrderId(77L)).thenReturn(Collections.emptyList());
+
+        assertEquals(77L, orderService.detailsForAdmin(77L).getId());
+        assertThrows(OrderBusinessException.class,
+                () -> orderService.detailsForCurrentUser(77L));
     }
 }

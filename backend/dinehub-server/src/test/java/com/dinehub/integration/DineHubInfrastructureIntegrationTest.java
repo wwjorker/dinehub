@@ -1,8 +1,10 @@
 package com.dinehub.integration;
 
 import com.dinehub.config.RabbitMQConfiguration;
+import com.dinehub.entity.AddressBook;
 import com.dinehub.entity.SeckillRequest;
 import com.dinehub.entity.Orders;
+import com.dinehub.mapper.AddressBookMapper;
 import com.dinehub.mapper.OrderMapper;
 import com.dinehub.mq.SeckillMessage;
 import com.dinehub.mq.SeckillOrderConsumer;
@@ -115,6 +117,8 @@ class DineHubInfrastructureIntegrationTest {
     @Autowired
     private OrderMapper orderMapper;
     @Autowired
+    private AddressBookMapper addressBookMapper;
+    @Autowired
     private AmqpAdmin rabbitAdmin;
     @Autowired
     @Qualifier("seckillBinding")
@@ -128,14 +132,51 @@ class DineHubInfrastructureIntegrationTest {
                 "select version from flyway_schema_history where version is not null order by installed_rank desc limit 1",
                 String.class);
 
-        assertEquals(10, migrations);
-        assertEquals("10", latest);
+        assertEquals(14, migrations);
+        assertEquals("14", latest);
         assertEquals(1, jdbc.queryForObject(
                 "select count(*) from information_schema.tables where table_schema = database() and table_name = 'seckill_request'",
                 Integer.class));
         String devAdminHash = jdbc.queryForObject("select password from employee where username='admin'", String.class);
         assertTrue(devAdminHash != null && devAdminHash.startsWith("$2"));
         assertFalse("$2a$10$guUgfBracBiCkF7VvcNm6OWu0PE./m22dBTxW2g.XfWO6zsS4VaIS".equals(devAdminHash));
+    }
+
+    @Test
+    void addressUpdatePersistsAllRegionLevels() {
+        long userId = 94001L;
+        jdbc.update("insert into address_book(user_id, consignee, phone, sex, province_code, province_name," +
+                        " city_code, city_name, district_code, district_name, detail, label, is_default)" +
+                        " values(?, 'Test User', '13800000000', '1', '320000', 'Jiangsu'," +
+                        " '320100', 'Nanjing', '320102', 'Xuanwu', 'Old detail', 'Home', 0)",
+                userId);
+        Long addressId = jdbc.queryForObject(
+                "select id from address_book where user_id = ? order by id desc limit 1", Long.class, userId);
+        assertNotNull(addressId);
+
+        try {
+            addressBookMapper.update(AddressBook.builder()
+                    .id(addressId)
+                    .provinceCode("110000")
+                    .provinceName("Beijing")
+                    .cityCode("110100")
+                    .cityName("Beijing")
+                    .districtCode("110105")
+                    .districtName("Chaoyang")
+                    .detail("New detail")
+                    .build());
+
+            AddressBook updated = addressBookMapper.getById(addressId);
+            assertEquals("110000", updated.getProvinceCode());
+            assertEquals("Beijing", updated.getProvinceName());
+            assertEquals("110100", updated.getCityCode());
+            assertEquals("Beijing", updated.getCityName());
+            assertEquals("110105", updated.getDistrictCode());
+            assertEquals("Chaoyang", updated.getDistrictName());
+            assertEquals("New detail", updated.getDetail());
+        } finally {
+            jdbc.update("delete from address_book where id = ?", addressId);
+        }
     }
 
     @Test
@@ -302,9 +343,9 @@ class DineHubInfrastructureIntegrationTest {
     void paymentAndCancellationConditionUpdatesCannotBothWin() throws Exception {
         String number = "IT" + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
         jdbc.update("insert into orders(number, status, fulfillment_type, user_id, address_book_id, order_time," +
-                        " pay_method, pay_status, amount, delivery_status, tableware_status)" +
-                        " values(?, 1, 2, ?, null, now(), 1, 0, ?, 1, 1)",
-                number, 92001L, new BigDecimal("10.00"));
+                        " pay_method, pay_status, original_amount, amount, delivery_status, tableware_status)" +
+                        " values(?, 1, 2, ?, null, now(), 1, 0, ?, ?, 1, 1)",
+                number, 92001L, new BigDecimal("10.00"), new BigDecimal("10.00"));
         Long orderId = jdbc.queryForObject("select id from orders where number = ?", Long.class, number);
         assertNotNull(orderId);
 
@@ -330,9 +371,9 @@ class DineHubInfrastructureIntegrationTest {
     void autoCompletionAndCancellationCannotBothWin() throws Exception {
         String number = "IT" + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
         jdbc.update("insert into orders(number, status, fulfillment_type, user_id, address_book_id, order_time," +
-                        " pay_method, pay_status, amount, delivery_status, tableware_status)" +
-                        " values(?, 4, 2, ?, null, now(), 1, 1, ?, 1, 1)",
-                number, 92002L, new BigDecimal("10.00"));
+                        " pay_method, pay_status, original_amount, amount, delivery_status, tableware_status)" +
+                        " values(?, 4, 2, ?, null, now(), 1, 1, ?, ?, 1, 1)",
+                number, 92002L, new BigDecimal("10.00"), new BigDecimal("10.00"));
         Long orderId = jdbc.queryForObject("select id from orders where number = ?", Long.class, number);
         CountDownLatch start = new CountDownLatch(1);
         ExecutorService pool = Executors.newFixedThreadPool(2);
@@ -368,10 +409,11 @@ class DineHubInfrastructureIntegrationTest {
         try {
             for (int i = 0; i < 60; i++) {
                 jdbc.update("insert into orders(number, status, fulfillment_type, user_id, address_book_id," +
-                                " order_time, pay_method, pay_status, amount, delivery_status, tableware_status," +
-                                " refund_next_retry_at) values(?, 6, 2, ?, null, now(), 1, 3, ?, 1, 1," +
+                                " order_time, pay_method, pay_status, original_amount, amount, delivery_status, tableware_status," +
+                                " refund_next_retry_at) values(?, 6, 2, ?, null, now(), 1, 3, ?, ?, 1, 1," +
                                 " date_sub(now(), interval 1 minute))",
-                        prefix + String.format("%02d", i), 93000L + i, new BigDecimal("10.00"));
+                        prefix + String.format("%02d", i), 93000L + i,
+                        new BigDecimal("10.00"), new BigDecimal("10.00"));
             }
 
             List<Orders> firstBatch = orderMapper.listRefundPending(LocalDateTime.now(), 50);

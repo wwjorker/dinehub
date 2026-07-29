@@ -2,6 +2,7 @@ package com.dinehub.task;
 
 import com.dinehub.entity.Orders;
 import com.dinehub.mapper.OrderMapper;
+import com.dinehub.mapper.UserCouponMapper;
 import com.dinehub.mq.OrderTimeoutConsumer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,6 +26,8 @@ public class OrderTask {
     @Autowired
     private OrderMapper orderMapper;
     @Autowired
+    private UserCouponMapper userCouponMapper;
+    @Autowired
     private com.dinehub.service.OrderService orderService;
 
     @Value("${dinehub.order.pay-timeout-millis:900000}")
@@ -44,7 +47,11 @@ public class OrderTask {
         log.info("兜底扫描发现超时订单 {} 笔", ordersList.size());
         for (Orders orders : ordersList) {
             //条件更新保证与MQ取消/支付回调之间幂等
-            orderMapper.cancelIfPending(orders.getId(), OrderTimeoutConsumer.CANCEL_REASON, LocalDateTime.now());
+            int rows = orderMapper.cancelIfPending(
+                    orders.getId(), OrderTimeoutConsumer.CANCEL_REASON, LocalDateTime.now());
+            if (rows > 0) {
+                userCouponMapper.releaseByOrderId(orders.getId());
+            }
         }
     }
 

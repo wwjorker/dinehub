@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
+    "@vant/area-data": "^1.5.2",
     "vant": "^4.9.0",
     "vue": "^3.4.0",
     "vue-router": "^4.4.0"

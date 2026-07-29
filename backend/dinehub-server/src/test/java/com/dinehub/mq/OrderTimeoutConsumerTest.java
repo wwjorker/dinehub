@@ -1,6 +1,7 @@
 package com.dinehub.mq;
 
 import com.dinehub.mapper.OrderMapper;
+import com.dinehub.mapper.UserCouponMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -21,6 +22,8 @@ class OrderTimeoutConsumerTest {
 
     @Mock
     private OrderMapper orderMapper;
+    @Mock
+    private UserCouponMapper userCouponMapper;
 
     @InjectMocks
     private OrderTimeoutConsumer consumer;
@@ -32,6 +35,7 @@ class OrderTimeoutConsumerTest {
         consumer.onOrderTimeout(99L);
 
         verify(orderMapper).cancelIfPending(eq(99L), eq(OrderTimeoutConsumer.CANCEL_REASON), any(LocalDateTime.class));
+        verify(userCouponMapper).releaseByOrderId(99L);
     }
 
     @Test

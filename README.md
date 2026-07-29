@@ -101,7 +101,7 @@ profile 必须显式指定,没有默认值:本地/演示用 `dev`;生产用 `pro
 
 在 `backend` 目录执行 `./mvnw -B clean verify`，本轮共发现 113 项：113 通过、0 failure、0 error、0 skipped；其中 Testcontainers 会启动真实 MySQL 8、Redis 7、RabbitMQ 4.1 与完整 Spring 上下文，覆盖空库 Flyway 迁移、生产迁移不创建默认管理员、退款重试、秒杀首发恢复/重复消费/重复补偿/终态竞争、mandatory return、支付/取消竞态、Redis 重建屏障和并发零超卖等性质。前端 `npm run test` 3 项全部通过，`npm run build` 及入库产物一致性校验通过；Docker Compose 真实运行栈、健康检查与浏览器纵向 E2E 亦已完成复验。
 
-当前 `npm audit --omit=dev` 在 PostCSS 8.5.24 上仍报告 7 条 high 依赖路径且上游暂无可用修复。这是需要持续跟踪的构建/开发供应链风险,不等同于已构建静态页面存在已验证的远程利用;项目不使用 `npm audit fix --force` 破坏兼容性。
+PostCSS 升级至 8.5.25 后，`npm audit --omit=dev` 当前报告 0 个已知生产依赖漏洞；仓库仍通过 Dependabot 持续跟踪 Maven、npm、Docker 与 GitHub Actions 更新，不使用 `npm audit fix --force` 破坏兼容性。
 
 ## 演进方向
 

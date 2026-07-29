@@ -7,6 +7,7 @@ import com.dinehub.result.PageResult;
 import com.dinehub.vo.UserCouponVO;
 import com.dinehub.vo.SeckillResultVO;
 import com.dinehub.vo.SeckillTicketVO;
+import com.dinehub.vo.SeckillCampaignVO;
 
 import java.util.List;
 
@@ -42,7 +43,7 @@ public interface CouponService {
     /**
      * C端可见的进行中/未开始秒杀券
      */
-    List<Coupon> listActiveSeckill();
+    List<SeckillCampaignVO> listActiveSeckill();
 
     /**
      * 幂等重建秒杀Redis账本(预热失败/Redis重启后的恢复入口)

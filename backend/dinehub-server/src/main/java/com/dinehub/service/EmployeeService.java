@@ -3,6 +3,8 @@ package com.dinehub.service;
 import com.dinehub.dto.EmployeeDTO;
 import com.dinehub.dto.EmployeeLoginDTO;
 import com.dinehub.dto.EmployeePageQueryDTO;
+import com.dinehub.dto.PasswordEditDTO;
+import com.dinehub.dto.PasswordResetDTO;
 import com.dinehub.entity.Employee;
 import com.dinehub.result.PageResult;
 
@@ -47,4 +49,8 @@ public interface EmployeeService {
      * @param employeeDTO
      */
     void update(EmployeeDTO employeeDTO);
+
+    void changePassword(PasswordEditDTO passwordEditDTO);
+
+    void resetPassword(Long id, PasswordResetDTO passwordResetDTO);
 }

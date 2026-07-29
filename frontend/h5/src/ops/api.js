@@ -19,7 +19,9 @@ export function saveSession(data) {
   sessionStorage.setItem(PROFILE_KEY, JSON.stringify({
     id: data.id,
     name: data.name,
-    userName: data.userName
+    userName: data.userName,
+    role: data.role,
+    mustChangePassword: Boolean(data.mustChangePassword)
   }))
 }
 
@@ -59,6 +61,10 @@ export async function request(path, options = {}) {
     clearSession()
     window.dispatchEvent(new CustomEvent('ops-auth-expired'))
     throw new Error('登录状态已失效')
+  }
+  if (response.status === 428) {
+    window.dispatchEvent(new CustomEvent('ops-password-required'))
+    throw new Error('请先修改临时密码')
   }
 
   const contentType = response.headers.get('content-type') || ''
@@ -171,6 +177,13 @@ export const opsApi = {
   updateEmployee: (payload) => request('/admin/employee', { method: 'PUT', body: JSON.stringify(payload) }),
   setEmployeeStatus: (id, status) =>
     request(`/admin/employee/status/${encodeURIComponent(status)}?${query({ id })}`, { method: 'POST' }),
+  changePassword: (payload) =>
+    request('/admin/employee/password', { method: 'PUT', body: JSON.stringify(payload) }),
+  resetEmployeePassword: (id, newPassword) =>
+    request(`/admin/employee/${encodeURIComponent(id)}/reset-password`, {
+      method: 'PUT',
+      body: JSON.stringify({ newPassword })
+    }),
 
   turnoverReport: (begin, end) =>
     request(`/admin/report/turnoverStatistics?${query({ begin, end })}`),

@@ -7,6 +7,9 @@ const router = useRouter()
 const route = useRoute()
 const loading = ref(false)
 const orders = ref([])
+const page = ref(1)
+const total = ref(0)
+const pageSize = 20
 const validFilters = ['all', 'pay', 'making', 'done', 'cancelled']
 const activeFilter = ref(validFilters.includes(route.query.filter) ? route.query.filter : 'all')
 
@@ -47,14 +50,24 @@ function dishSummary(order) {
     .join('、')
 }
 
-async function load() {
+async function load(reset = true) {
   loading.value = true
   try {
-    const result = await api.historyOrders(1, 100)
-    orders.value = result?.records || []
+    if (reset) {
+      page.value = 1
+      orders.value = []
+    }
+    const result = await api.historyOrders(page.value, pageSize)
+    orders.value.push(...(result?.records || []))
+    total.value = Number(result?.total || 0)
   } finally {
     loading.value = false
   }
+}
+
+async function loadMore() {
+  page.value += 1
+  await load(false)
 }
 
 onMounted(load)
@@ -65,7 +78,7 @@ onMounted(load)
     <header class="page-head orders-head">
       <button class="back-button" aria-label="返回" @click="router.back()">‹</button>
       <div>
-        <div class="eyebrow">MY ORDERS</div>
+        <div class="eyebrow">消费记录</div>
         <h1 class="page-title">我的订单</h1>
         <p class="page-subtitle">从下单、接单到完成，每一步都有记录。</p>
       </div>
@@ -111,6 +124,15 @@ onMounted(load)
           <strong class="money">¥{{ Number(order.amount || 0).toFixed(2) }}</strong>
         </div>
       </article>
+      <van-button
+        v-if="orders.length < total"
+        class="load-more"
+        block
+        plain
+        round
+        :loading="loading"
+        @click="loadMore"
+      >加载更多订单</van-button>
     </main>
   </div>
 </template>

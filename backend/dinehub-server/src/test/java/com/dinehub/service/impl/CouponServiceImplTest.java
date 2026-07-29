@@ -14,6 +14,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DuplicateKeyException;
@@ -84,6 +85,48 @@ class CouponServiceImplTest {
         dto.setTotalStock(100);
 
         assertThrows(SeckillBusinessException.class, () -> couponService.save(dto));
+    }
+
+    @Test
+    void zeroThresholdCouponCanBeCreated() {
+        CouponDTO dto = new CouponDTO();
+        dto.setTitle("无门槛券");
+        dto.setType(Coupon.TYPE_SECKILL);
+        dto.setDiscountAmount(1000);
+        dto.setMinAmount(0);
+        dto.setTotalStock(10);
+        dto.setSeckillStartTime(LocalDateTime.now().plusMinutes(1));
+        dto.setSeckillEndTime(LocalDateTime.now().plusMinutes(30));
+
+        couponService.save(dto);
+
+        ArgumentCaptor<Coupon> captor = ArgumentCaptor.forClass(Coupon.class);
+        verify(couponMapper).insert(captor.capture());
+        assertEquals(0, captor.getValue().getMinAmount());
+    }
+
+    @Test
+    void nonzeroThresholdCannotBeLowerThanDiscount() {
+        CouponDTO dto = new CouponDTO();
+        dto.setTitle("规则错误");
+        dto.setType(Coupon.TYPE_SECKILL);
+        dto.setDiscountAmount(1000);
+        dto.setMinAmount(500);
+        dto.setTotalStock(10);
+        dto.setSeckillStartTime(LocalDateTime.now().plusMinutes(1));
+        dto.setSeckillEndTime(LocalDateTime.now().plusMinutes(30));
+
+        assertThrows(SeckillBusinessException.class, () -> couponService.save(dto));
+        verify(couponMapper, never()).insert(any());
+    }
+
+    @Test
+    void campaignListUsesEpochTimeForTimezoneIndependentClients() {
+        when(couponMapper.listActiveSeckill()).thenReturn(Collections.singletonList(publishedCoupon()));
+
+        assertEquals("LIVE", couponService.listActiveSeckill().get(0).getPhase());
+        assertEquals(true, couponService.listActiveSeckill().get(0).getEndTimeEpochMs()
+                > couponService.listActiveSeckill().get(0).getStartTimeEpochMs());
     }
 
     @Test

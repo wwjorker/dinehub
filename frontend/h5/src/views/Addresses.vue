@@ -2,8 +2,22 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showConfirmDialog, showToast } from 'vant'
+import { areaList } from '@vant/area-data'
 import { api } from '../api'
-import { regions } from '../region-data'
+
+const regions = Object.entries(areaList.province_list).map(([provinceCode, provinceName]) => ({
+  code: provinceCode,
+  name: provinceName,
+  cities: Object.entries(areaList.city_list)
+    .filter(([cityCode]) => cityCode.startsWith(provinceCode.slice(0, 2)))
+    .map(([cityCode, cityName]) => ({
+      code: cityCode,
+      name: cityName,
+      districts: Object.entries(areaList.county_list)
+        .filter(([districtCode]) => districtCode.startsWith(cityCode.slice(0, 4)))
+        .map(([districtCode, districtName]) => ({ code: districtCode, name: districtName }))
+    }))
+}))
 
 const router = useRouter()
 const addresses = ref([])
@@ -162,7 +176,7 @@ onMounted(load)
     <header class="page-head address-head">
       <button class="back-button" aria-label="返回" @click="router.back()">‹</button>
       <div>
-        <div class="eyebrow">DELIVERY ADDRESS</div>
+        <div class="eyebrow">外送信息</div>
         <h1 class="page-title">收货地址</h1>
         <p class="page-subtitle">外送订单使用；堂食扫码点餐不需要填写。</p>
       </div>
@@ -197,7 +211,7 @@ onMounted(load)
       <section class="address-editor">
         <div class="editor-head">
           <div>
-            <div class="eyebrow">ADDRESS FORM</div>
+            <div class="eyebrow">收货信息</div>
             <h2>{{ editingId ? '编辑地址' : '新增地址' }}</h2>
           </div>
           <button aria-label="关闭" @click="editorOpen = false">×</button>

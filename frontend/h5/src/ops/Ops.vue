@@ -9,6 +9,13 @@ const loggingIn = ref(false)
 const toastMessage = ref('')
 const activePanel = ref('dashboard')
 const busy = ref(false)
+const passwordEditor = reactive({
+  open: Boolean(profile.value.mustChangePassword),
+  required: Boolean(profile.value.mustChangePassword),
+  oldPassword: '',
+  newPassword: '',
+  confirmPassword: ''
+})
 let toastTimer
 let orderSocket
 let reconnectTimer
@@ -20,14 +27,12 @@ const navItems = [
   { key: 'catalog', label: '菜单管理', mark: '菜' },
   { key: 'tables', label: '桌台点单', mark: '桌' },
   { key: 'coupons', label: '秒杀与卡券', mark: '券' },
-  { key: 'employees', label: '员工管理', mark: '员' },
-  { key: 'reports', label: '经营报表', mark: '报' },
-  { key: 'engineering', label: '项目说明', mark: '工', secondary: true }
+  { key: 'employees', label: '员工管理', mark: '员', adminOnly: true },
+  { key: 'reports', label: '经营报表', mark: '报' }
 ]
 
 const panelMeta = computed(() => navItems.find((item) => item.key === activePanel.value) || navItems[0])
-const primaryNavItems = computed(() => navItems.filter((item) => !item.secondary))
-const secondaryNavItems = computed(() => navItems.filter((item) => item.secondary))
+const primaryNavItems = computed(() => navItems.filter((item) => !item.adminOnly || profile.value.role === 'ADMIN'))
 
 function toast(message) {
   clearTimeout(toastTimer)
@@ -37,6 +42,12 @@ function toast(message) {
 
 window.addEventListener('ops-error', (event) => toast(event.detail))
 window.addEventListener('ops-auth-expired', handleAuthExpired)
+window.addEventListener('ops-password-required', openRequiredPasswordEditor)
+
+function openRequiredPasswordEditor() {
+  passwordEditor.open = true
+  passwordEditor.required = true
+}
 
 function handleAuthExpired() {
   closeOrderSocket()
@@ -55,12 +66,37 @@ async function doLogin() {
     token.value = data.token
     profile.value = getProfile()
     login.password = ''
+    if (data.mustChangePassword) {
+      openRequiredPasswordEditor()
+      toast('首次登录，请先修改临时密码')
+      return
+    }
     toast('登录成功')
     await loadPanel('dashboard')
     connectOrderSocket()
   } finally {
     loggingIn.value = false
   }
+}
+
+async function changeOwnPassword() {
+  if (passwordEditor.newPassword.length < 8) return toast('新密码至少8位')
+  if (passwordEditor.newPassword !== passwordEditor.confirmPassword) return toast('两次输入的新密码不一致')
+  await opsApi.changePassword({
+    oldPassword: passwordEditor.oldPassword,
+    newPassword: passwordEditor.newPassword,
+    confirmPassword: passwordEditor.confirmPassword
+  })
+  passwordEditor.open = false
+  passwordEditor.required = false
+  passwordEditor.oldPassword = ''
+  passwordEditor.newPassword = ''
+  passwordEditor.confirmPassword = ''
+  profile.value = { ...profile.value, mustChangePassword: false }
+  sessionStorage.setItem('dinehub.ops.profile', JSON.stringify(profile.value))
+  toast('密码已更新')
+  await loadPanel('dashboard')
+  connectOrderSocket()
 }
 
 async function logout() {
@@ -167,6 +203,7 @@ const orders = ref([])
 const orderFilter = ref('')
 const orderSearch = ref('')
 const orderDetail = ref(null)
+const orderPage = reactive({ page: 1, pageSize: 20, total: 0 })
 const orderStatus = {
   1: '待付款',
   2: '待接单',
@@ -178,12 +215,26 @@ const orderStatus = {
 
 async function loadOrders() {
   const result = await opsApi.orderPage({
-    page: 1,
-    pageSize: 50,
+    page: orderPage.page,
+    pageSize: orderPage.pageSize,
     status: orderFilter.value,
     number: orderSearch.value.trim()
   })
   orders.value = result?.records || []
+  orderPage.total = Number(result?.total || 0)
+}
+
+async function searchOrders() {
+  orderPage.page = 1
+  await loadOrders()
+}
+
+async function changeOrderPage(delta) {
+  const next = orderPage.page + delta
+  const totalPages = Math.max(1, Math.ceil(orderPage.total / orderPage.pageSize))
+  if (next < 1 || next > totalPages) return
+  orderPage.page = next
+  await loadOrders()
 }
 
 async function viewOrder(id) {
@@ -192,8 +243,16 @@ async function viewOrder(id) {
 
 async function advanceOrder(order, action) {
   if (action === 'confirm') await opsApi.confirmOrder(order.id)
-  if (action === 'reject') await opsApi.rejectOrder(order.id, '门店当前无法履约')
-  if (action === 'cancel') await opsApi.cancelOrder(order.id, '商家取消订单')
+  if (action === 'reject') {
+    const reason = window.prompt('请输入拒单原因（顾客可见）', '当前菜品暂时无法制作')
+    if (!reason?.trim()) return
+    await opsApi.rejectOrder(order.id, reason.trim())
+  }
+  if (action === 'cancel') {
+    const reason = window.prompt('请输入取消原因（顾客可见）', '门店临时无法履约')
+    if (!reason?.trim()) return
+    await opsApi.cancelOrder(order.id, reason.trim())
+  }
   if (action === 'deliver') await opsApi.deliverOrder(order.id)
   if (action === 'complete') await opsApi.completeOrder(order.id)
   toast('订单状态已更新')
@@ -265,10 +324,24 @@ async function openCatalogEditor(kind, item) {
   if (kind === 'setmeal') {
     const detail = item ? await opsApi.setmealDetail(item.id) : null
     editor.data = detail
-      ? { ...detail, dishIds: (detail.setmealDishes || []).map((dish) => dish.dishId) }
-      : { name: '', categoryId: categoriesByType(2)[0]?.id, price: 0, description: '', image: '', status: 0, dishIds: [] }
+      ? { ...detail, setmealDishes: (detail.setmealDishes || []).map((dish) => ({ dishId: dish.dishId, copies: Number(dish.copies || 1) })) }
+      : { name: '', categoryId: categoriesByType(2)[0]?.id, price: 0, description: '', image: '', status: 0, setmealDishes: [] }
   }
   editor.open = true
+}
+
+function selectedSetmealDish(dishId) {
+  return editor.data.setmealDishes?.some((item) => item.dishId === dishId)
+}
+
+function toggleSetmealDish(dishId, checked) {
+  editor.data.setmealDishes ||= []
+  if (checked) editor.data.setmealDishes.push({ dishId, copies: 1 })
+  else editor.data.setmealDishes = editor.data.setmealDishes.filter((item) => item.dishId !== dishId)
+}
+
+function dishById(dishId) {
+  return dishes.value.find((dish) => dish.id === dishId) || {}
 }
 
 function safeFlavorOptions(value) {
@@ -342,10 +415,12 @@ async function saveCatalog() {
     else await opsApi.saveDish(payload)
   }
   if (editor.kind === 'setmeal') {
-    if (!data.categoryId || Number(data.price) <= 0 || !data.dishIds?.length) {
+    if (!data.categoryId || Number(data.price) <= 0 || !data.setmealDishes?.length) {
       return toast('请选择套餐分类、价格和至少一道菜品')
     }
-    const selected = dishes.value.filter((dish) => data.dishIds.includes(dish.id))
+    if (data.setmealDishes.some((item) => Number(item.copies) < 1 || Number(item.copies) > 99)) {
+      return toast('套餐内每道菜的份数应为1到99')
+    }
     const payload = {
       id: data.id,
       name: data.name.trim(),
@@ -354,11 +429,11 @@ async function saveCatalog() {
       image: data.image?.trim() || '',
       description: data.description?.trim() || '',
       status: Number(data.status ?? 0),
-      setmealDishes: selected.map((dish) => ({
-        dishId: dish.id,
-        name: dish.name,
-        price: dish.price,
-        copies: 1
+      setmealDishes: data.setmealDishes.map((item) => ({
+        dishId: item.dishId,
+        name: dishById(item.dishId).name,
+        price: dishById(item.dishId).price,
+        copies: Number(item.copies)
       }))
     }
     if (editor.mode === 'edit') await opsApi.updateSetmeal(payload)
@@ -463,8 +538,9 @@ async function loadCoupons() {
 
 async function createCoupon() {
   const form = couponEditor.data
-  if (!form.title.trim() || form.discountAmount <= 0 || form.minAmount < form.discountAmount) {
-    return toast('请检查券标题、面额和门槛')
+  if (!form.title.trim() || form.discountAmount <= 0 || form.minAmount < 0
+      || (form.minAmount > 0 && form.minAmount < form.discountAmount)) {
+    return toast('门槛可填0（无门槛）；非0门槛不能低于优惠金额')
   }
   const now = new Date()
   await opsApi.saveCoupon({
@@ -480,6 +556,23 @@ async function createCoupon() {
   couponEditor.data = { title: '', discountAmount: 10, minAmount: 30, totalStock: 100, minutes: 60 }
   toast('秒杀券已创建，发布后才会开放抢券')
   await loadCoupons()
+}
+
+function couponBenefit(coupon) {
+  return coupon.minAmount <= 0
+    ? `无门槛减 ${coupon.discountAmount / 100}`
+    : `满 ${coupon.minAmount / 100} 减 ${coupon.discountAmount / 100}`
+}
+
+function couponLifecycle(coupon) {
+  if (coupon.status !== 1) return '草稿'
+  const now = Date.now()
+  const start = new Date(String(coupon.seckillStartTime).replace(' ', 'T') + '+08:00').getTime()
+  const end = new Date(String(coupon.seckillEndTime).replace(' ', 'T') + '+08:00').getTime()
+  if (coupon.remainingStock <= 0) return '已抢完'
+  if (now < start) return '待开始'
+  if (now >= end) return '已结束'
+  return '进行中'
 }
 
 async function publishCoupon(coupon) {
@@ -502,6 +595,7 @@ async function reconcileCoupon(coupon) {
 const employees = ref([])
 const employeeSearch = ref('')
 const employeeEditor = reactive({ open: false, mode: 'create', data: {} })
+const employeePasswordReset = reactive({ open: false, employee: null, newPassword: '' })
 
 async function loadEmployees() {
   const result = await opsApi.employeePage({
@@ -516,7 +610,7 @@ async function openEmployeeEditor(item) {
   employeeEditor.mode = item ? 'edit' : 'create'
   employeeEditor.data = item
     ? await opsApi.employeeDetail(item.id)
-    : { username: '', name: '', phone: '', sex: '1', idNumber: '' }
+    : { username: '', name: '', phone: '', sex: '1', idNumber: '', role: 'OPERATOR', password: '', confirmPassword: '' }
   employeeEditor.open = true
 }
 
@@ -525,19 +619,38 @@ async function saveEmployee() {
   if (!data.username?.trim() || !data.name?.trim() || !/^1\d{10}$/.test(data.phone || '')) {
     return toast('请填写账号、姓名和正确手机号')
   }
+  if (!/^[0-9]{17}[0-9Xx]$/.test(data.idNumber || '')) return toast('请填写正确的身份证号')
+  if (employeeEditor.mode === 'create' && (data.password?.length < 8 || data.password !== data.confirmPassword)) {
+    return toast('请设置至少8位且两次一致的临时密码')
+  }
   const payload = {
     id: data.id,
     username: data.username.trim(),
     name: data.name.trim(),
     phone: data.phone,
     sex: data.sex,
-    idNumber: data.idNumber?.trim() || ''
+    idNumber: data.idNumber?.trim() || '',
+    role: data.role || 'OPERATOR',
+    password: employeeEditor.mode === 'create' ? data.password : undefined
   }
   if (employeeEditor.mode === 'edit') await opsApi.updateEmployee(payload)
   else await opsApi.saveEmployee(payload)
   employeeEditor.open = false
-  toast(employeeEditor.mode === 'edit' ? '员工信息已更新' : '员工已创建，初始密码为 123456')
+  toast(employeeEditor.mode === 'edit' ? '员工信息已更新' : '员工已创建，首次登录需修改临时密码')
   await loadEmployees()
+}
+
+function openEmployeePasswordReset(employee) {
+  employeePasswordReset.employee = employee
+  employeePasswordReset.newPassword = ''
+  employeePasswordReset.open = true
+}
+
+async function resetEmployeePassword() {
+  if (employeePasswordReset.newPassword.length < 8) return toast('临时密码至少8位')
+  await opsApi.resetEmployeePassword(employeePasswordReset.employee.id, employeePasswordReset.newPassword)
+  employeePasswordReset.open = false
+  toast('临时密码已重置，该员工下次登录必须修改密码')
 }
 
 async function toggleEmployee(employee) {
@@ -609,6 +722,10 @@ function money(value) {
 
 onMounted(async () => {
   if (!token.value) return
+  if (profile.value.mustChangePassword) {
+    openRequiredPasswordEditor()
+    return
+  }
   try {
     await loadPanel('dashboard')
     connectOrderSocket()
@@ -622,6 +739,7 @@ onBeforeUnmount(() => {
   clearTimeout(toastTimer)
   if (qr.imageUrl) URL.revokeObjectURL(qr.imageUrl)
   window.removeEventListener('ops-auth-expired', handleAuthExpired)
+  window.removeEventListener('ops-password-required', openRequiredPasswordEditor)
 })
 </script>
 
@@ -631,7 +749,7 @@ onBeforeUnmount(() => {
   <main v-if="!token" class="login-shell">
     <section class="login-story">
       <div class="brand-seal">食</div>
-      <div class="login-kicker">DINEHUB OPERATIONS</div>
+      <div class="login-kicker">食汇运营台</div>
       <h1>让一顿饭，从前台到后厨都有迹可循。</h1>
       <p>扫码点餐、秒杀抢券、订单流转和经营数据，统一收进这间数字店铺。</p>
       <div class="story-points">
@@ -641,7 +759,7 @@ onBeforeUnmount(() => {
       </div>
     </section>
     <section class="login-card ops-card">
-      <div class="panel-kicker">MERCHANT ACCESS</div>
+      <div class="panel-kicker">员工登录</div>
       <h2>商家运营台</h2>
       <p>使用项目初始化的管理员账号登录。</p>
       <label class="field-label">
@@ -682,20 +800,10 @@ onBeforeUnmount(() => {
           <span>{{ item.mark }}</span>{{ item.label }}
         </button>
       </nav>
-      <div class="secondary-nav">
-        <span>关于项目</span>
-        <button
-          v-for="item in secondaryNavItems"
-          :key="item.key"
-          :class="{ active: activePanel === item.key }"
-          @click="switchPanel(item.key)"
-        >
-          <span>{{ item.mark }}</span>{{ item.label }}
-        </button>
-      </div>
       <div class="side-user">
         <div class="avatar">{{ (profile.name || profile.userName || '管').slice(0, 1) }}</div>
-        <div><strong>{{ profile.name || '管理员' }}</strong><small>{{ profile.userName }}</small></div>
+        <div><strong>{{ profile.name || '管理员' }}</strong><small>{{ profile.role === 'ADMIN' ? '管理员' : '运营员' }} · {{ profile.userName }}</small></div>
+        <button aria-label="修改密码" @click="passwordEditor.open = true">改密</button>
         <button aria-label="退出登录" @click="logout">退出</button>
       </div>
     </aside>
@@ -703,7 +811,7 @@ onBeforeUnmount(() => {
     <section class="workspace">
       <header class="topbar">
         <div>
-          <span class="panel-kicker">{{ panelMeta.key.toUpperCase() }}</span>
+          <span class="panel-kicker">运营管理</span>
           <h1 class="panel-title">{{ panelMeta.label }}</h1>
         </div>
         <div class="top-actions">
@@ -783,12 +891,12 @@ onBeforeUnmount(() => {
       <div v-if="activePanel === 'orders'" class="panel">
         <p class="panel-description">接单、拒单、制作、配送和完成形成可操作的订单状态机。</p>
         <div class="toolbar">
-          <input v-model="orderSearch" class="ops-input" placeholder="按订单号查询" @keyup.enter="loadOrders" />
-          <select v-model="orderFilter" class="ops-select" @change="loadOrders">
+          <input v-model="orderSearch" class="ops-input" placeholder="按订单号查询" @keyup.enter="searchOrders" />
+          <select v-model="orderFilter" class="ops-select" @change="searchOrders">
             <option value="">全部状态</option>
             <option v-for="(label, value) in orderStatus" :key="value" :value="value">{{ label }}</option>
           </select>
-          <button class="ops-button dark" @click="loadOrders">查询</button>
+          <button class="ops-button dark" @click="searchOrders">查询</button>
         </div>
         <section class="ops-card">
           <div class="ops-table-wrap">
@@ -807,6 +915,12 @@ onBeforeUnmount(() => {
               </tbody>
             </table>
             <div v-if="!orders.length" class="empty-state">当前筛选条件下没有订单</div>
+          </div>
+          <div class="pagination">
+            <span>共 {{ orderPage.total }} 条</span>
+            <button class="ops-button" :disabled="orderPage.page <= 1" @click="changeOrderPage(-1)">上一页</button>
+            <strong>{{ orderPage.page }} / {{ Math.max(1, Math.ceil(orderPage.total / orderPage.pageSize)) }}</strong>
+            <button class="ops-button" :disabled="orderPage.page >= Math.ceil(orderPage.total / orderPage.pageSize)" @click="changeOrderPage(1)">下一页</button>
           </div>
         </section>
       </div>
@@ -897,7 +1011,7 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-if="activePanel === 'coupons'" class="panel">
-        <p class="panel-description">券库存同时跨 MySQL、Redis 和用户持券记录，对账结果能直接展示一致性。</p>
+        <p class="panel-description">日常运营只需创建和发布活动；库存对账与缓存重建仅供管理员在故障处理时使用。</p>
         <div class="toolbar">
           <span class="toolbar-spacer" />
           <button class="ops-button primary" @click="couponEditor.open = true">创建秒杀券</button>
@@ -909,14 +1023,14 @@ onBeforeUnmount(() => {
               <tbody>
                 <tr v-for="coupon in coupons" :key="coupon.id">
                   <td>{{ coupon.title }}</td>
-                  <td>满 {{ coupon.minAmount / 100 }} 减 {{ coupon.discountAmount / 100 }}</td>
+                  <td>{{ couponBenefit(coupon) }}</td>
                   <td>{{ coupon.remainingStock }} / {{ coupon.totalStock }}</td>
                   <td class="wrap-cell">{{ formatOrderTime(coupon.seckillStartTime) }} 至 {{ formatOrderTime(coupon.seckillEndTime) }}</td>
-                  <td><span class="status-tag" :class="{ off: coupon.status !== 1 }">{{ coupon.status === 1 ? '已发布' : '未发布' }}</span></td>
+                  <td><span class="status-tag" :class="{ off: !['进行中', '待开始'].includes(couponLifecycle(coupon)) }">{{ couponLifecycle(coupon) }}</span></td>
                   <td class="row-actions">
                     <button v-if="coupon.status !== 1" @click="publishCoupon(coupon)">发布活动</button>
-                    <details v-else class="advanced-actions">
-                      <summary>高级运维</summary>
+                    <details v-else-if="profile.role === 'ADMIN'" class="advanced-actions">
+                      <summary>故障处理</summary>
                       <button @click="reconcileCoupon(coupon)">库存对账</button>
                       <button @click="rebuildCoupon(coupon)">重建缓存</button>
                     </details>
@@ -929,7 +1043,7 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-if="activePanel === 'employees'" class="panel">
-        <p class="panel-description">管理运营端账号的基础资料和启用状态；当前版本尚未拆分细粒度 RBAC。</p>
+        <p class="panel-description">管理员可创建运营账号、分配两级角色并重置临时密码；员工首次登录必须修改密码。</p>
         <div class="toolbar">
           <input v-model="employeeSearch" class="ops-input" placeholder="按姓名查询" @keyup.enter="loadEmployees" />
           <button class="ops-button" @click="loadEmployees">查询</button>
@@ -939,14 +1053,16 @@ onBeforeUnmount(() => {
         <section class="ops-card">
           <div class="ops-table-wrap">
             <table class="ops-table">
-              <thead><tr><th>账号</th><th>姓名</th><th>手机号</th><th>状态</th><th>最近更新</th><th>操作</th></tr></thead>
+              <thead><tr><th>账号</th><th>姓名</th><th>角色</th><th>手机号</th><th>状态</th><th>最近更新</th><th>操作</th></tr></thead>
               <tbody>
                 <tr v-for="employee in employees" :key="employee.id">
-                  <td>{{ employee.username }}</td><td>{{ employee.name }}</td><td>{{ employee.phone }}</td>
+                  <td>{{ employee.username }}</td><td>{{ employee.name }}</td>
+                  <td>{{ employee.role === 'ADMIN' ? '管理员' : '运营员' }}</td><td>{{ employee.phone }}</td>
                   <td><span class="status-tag" :class="{ off: employee.status !== 1 }">{{ employee.status === 1 ? '启用' : '禁用' }}</span></td>
                   <td>{{ formatOrderTime(employee.updateTime) }}</td>
                   <td class="row-actions">
                     <button @click="openEmployeeEditor(employee)">编辑</button>
+                    <button @click="openEmployeePasswordReset(employee)">重置密码</button>
                     <button :disabled="employee.id === profile.id" @click="toggleEmployee(employee)">{{ employee.status === 1 ? '禁用' : '启用' }}</button>
                   </td>
                 </tr>
@@ -1049,13 +1165,14 @@ onBeforeUnmount(() => {
   <div v-if="orderDetail" class="modal-mask" @click.self="orderDetail = null">
     <section class="modal">
       <div class="modal-head">
-        <div><span class="panel-kicker">ORDER DETAIL</span><h2>{{ orderStatus[orderDetail.status] }} · {{ orderDetail.number }}</h2></div>
+        <div><span class="panel-kicker">订单详情</span><h2>{{ orderStatus[orderDetail.status] }} · {{ orderDetail.number }}</h2></div>
         <button class="modal-close" @click="orderDetail = null">×</button>
       </div>
       <div class="order-detail-summary">
         <div><span>履约方式</span><strong>{{ orderDetail.fulfillmentType === 2 ? '堂食' : '外送' }}</strong></div>
         <div><span>订单金额</span><strong>¥{{ money(orderDetail.amount) }}</strong></div>
         <div><span>下单时间</span><strong>{{ formatOrderTime(orderDetail.orderTime) }}</strong></div>
+        <div><span>支付状态</span><strong>{{ orderDetail.payStatus === 1 ? '已支付' : orderDetail.payStatus === 2 ? '已退款' : '未支付' }}</strong></div>
       </div>
       <div class="detail-list">
         <div v-for="item in orderDetail.orderDetailList" :key="item.id">
@@ -1065,8 +1182,11 @@ onBeforeUnmount(() => {
       </div>
       <dl class="detail-dl">
         <div v-if="orderDetail.address"><dt>地址 / 桌台</dt><dd>{{ orderDetail.address }}</dd></div>
+        <div v-if="orderDetail.consignee"><dt>联系人</dt><dd>{{ orderDetail.consignee }} · {{ orderDetail.phone }}</dd></div>
+        <div v-if="orderDetail.originalAmount"><dt>金额明细</dt><dd>原价 ¥{{ money(orderDetail.originalAmount) }}，优惠 ¥{{ money(orderDetail.discountAmount) }}，实付 ¥{{ money(orderDetail.amount) }}</dd></div>
         <div v-if="orderDetail.remark"><dt>备注</dt><dd>{{ orderDetail.remark }}</dd></div>
         <div v-if="orderDetail.cancelReason"><dt>取消原因</dt><dd>{{ orderDetail.cancelReason }}</dd></div>
+        <div v-if="orderDetail.rejectionReason"><dt>拒单原因</dt><dd>{{ orderDetail.rejectionReason }}</dd></div>
       </dl>
       <div class="modal-actions">
         <button
@@ -1085,7 +1205,7 @@ onBeforeUnmount(() => {
   <div v-if="editor.open" class="modal-mask" @click.self="editor.open = false">
     <section class="modal">
       <div class="modal-head">
-        <div><span class="panel-kicker">CATALOG EDITOR</span><h2>{{ editor.mode === 'edit' ? '编辑' : '新增' }}{{ editor.kind === 'category' ? '分类' : editor.kind === 'dish' ? '菜品' : '套餐' }}</h2></div>
+        <div><span class="panel-kicker">菜单编辑</span><h2>{{ editor.mode === 'edit' ? '编辑' : '新增' }}{{ editor.kind === 'category' ? '分类' : editor.kind === 'dish' ? '菜品' : '套餐' }}</h2></div>
         <button class="modal-close" @click="editor.open = false">×</button>
       </div>
       <div class="form-grid">
@@ -1103,10 +1223,10 @@ onBeforeUnmount(() => {
           <label class="field-label">价格（元）<input v-model.number="editor.data.price" class="ops-input" type="number" min="0.01" step="0.01" /></label>
           <label class="field-label full">描述<textarea v-model="editor.data.description" class="ops-textarea" maxlength="200" rows="3" /></label>
           <div class="field-label full image-editor">
-            <span>菜品图片</span>
+            <span>{{ editor.kind === 'dish' ? '菜品图片' : '套餐图片' }}</span>
             <div class="image-editor-row">
               <div class="image-preview">
-                <img v-if="editor.data.image" :src="editor.data.image" alt="菜品图片预览" @error="$event.target.style.display='none'" />
+                <img v-if="editor.data.image" :src="editor.data.image" :alt="`${editor.kind === 'dish' ? '菜品' : '套餐'}图片预览`" @error="$event.target.style.display='none'" />
                 <span v-else>暂无图片</span>
               </div>
               <label class="ops-button upload-button">
@@ -1131,8 +1251,12 @@ onBeforeUnmount(() => {
         <fieldset v-if="editor.kind === 'setmeal'" class="dish-picker full">
           <legend>选择套餐菜品</legend>
           <label v-for="dish in dishes" :key="dish.id">
-            <input v-model="editor.data.dishIds" type="checkbox" :value="dish.id" />{{ dish.name }} · ¥{{ money(dish.price) }}
+            <input type="checkbox" :checked="selectedSetmealDish(dish.id)" @change="toggleSetmealDish(dish.id, $event.target.checked)" />{{ dish.name }} · ¥{{ money(dish.price) }}
           </label>
+          <div v-for="item in editor.data.setmealDishes" :key="item.dishId" class="setmeal-quantity">
+            <span>{{ dishById(item.dishId).name }}</span>
+            <label>份数 <input v-model.number="item.copies" class="ops-input" type="number" min="1" max="99" /></label>
+          </div>
         </fieldset>
       </div>
       <div class="modal-actions"><button class="ops-button" @click="editor.open = false">取消</button><button class="ops-button primary" @click="saveCatalog">保存</button></div>
@@ -1142,13 +1266,13 @@ onBeforeUnmount(() => {
   <div v-if="couponEditor.open" class="modal-mask" @click.self="couponEditor.open = false">
     <section class="modal">
       <div class="modal-head">
-        <div><span class="panel-kicker">SECKILL CAMPAIGN</span><h2>创建秒杀券</h2></div>
+        <div><span class="panel-kicker">活动设置</span><h2>创建秒杀券</h2></div>
         <button class="modal-close" @click="couponEditor.open = false">×</button>
       </div>
       <div class="form-grid">
         <label class="field-label full">活动标题<input v-model="couponEditor.data.title" class="ops-input" maxlength="50" placeholder="例如：午市立减 10 元" /></label>
         <label class="field-label">优惠金额（元）<input v-model.number="couponEditor.data.discountAmount" class="ops-input" type="number" min="1" /></label>
-        <label class="field-label">使用门槛（元）<input v-model.number="couponEditor.data.minAmount" class="ops-input" type="number" min="1" /></label>
+        <label class="field-label">使用门槛（元）<input v-model.number="couponEditor.data.minAmount" class="ops-input" type="number" min="0" /><small>填 0 表示无门槛</small></label>
         <label class="field-label">发行库存<input v-model.number="couponEditor.data.totalStock" class="ops-input" type="number" min="1" /></label>
         <label class="field-label">持续时间（分钟）<input v-model.number="couponEditor.data.minutes" class="ops-input" type="number" min="1" /></label>
       </div>
@@ -1159,7 +1283,7 @@ onBeforeUnmount(() => {
   <div v-if="reconciliation" class="modal-mask" @click.self="reconciliation = null">
     <section class="modal reconciliation-modal">
       <div class="modal-head">
-        <div><span class="panel-kicker">STOCK RECONCILIATION</span><h2>秒杀库存对账</h2></div>
+        <div><span class="panel-kicker">故障诊断</span><h2>秒杀库存对账</h2></div>
         <button class="modal-close" @click="reconciliation = null">×</button>
       </div>
       <div class="reconcile-status" :class="{ danger: !reconciliation.consistent }">
@@ -1180,7 +1304,7 @@ onBeforeUnmount(() => {
   <div v-if="employeeEditor.open" class="modal-mask" @click.self="employeeEditor.open = false">
     <section class="modal">
       <div class="modal-head">
-        <div><span class="panel-kicker">EMPLOYEE PROFILE</span><h2>{{ employeeEditor.mode === 'edit' ? '编辑员工' : '新增员工' }}</h2></div>
+        <div><span class="panel-kicker">账号资料</span><h2>{{ employeeEditor.mode === 'edit' ? '编辑员工' : '新增员工' }}</h2></div>
         <button class="modal-close" @click="employeeEditor.open = false">×</button>
       </div>
       <div class="form-grid">
@@ -1188,16 +1312,47 @@ onBeforeUnmount(() => {
         <label class="field-label">姓名<input v-model="employeeEditor.data.name" class="ops-input" maxlength="32" /></label>
         <label class="field-label">手机号<input v-model="employeeEditor.data.phone" class="ops-input" maxlength="11" /></label>
         <label class="field-label">性别<select v-model="employeeEditor.data.sex" class="ops-select"><option value="1">男</option><option value="0">女</option></select></label>
+        <label class="field-label">角色<select v-model="employeeEditor.data.role" class="ops-select"><option value="OPERATOR">运营员</option><option value="ADMIN">管理员</option></select></label>
         <label class="field-label full">身份证号<input v-model="employeeEditor.data.idNumber" class="ops-input" maxlength="18" /></label>
+        <label v-if="employeeEditor.mode === 'create'" class="field-label">临时密码<input v-model="employeeEditor.data.password" class="ops-input" type="password" maxlength="64" autocomplete="new-password" /></label>
+        <label v-if="employeeEditor.mode === 'create'" class="field-label">确认临时密码<input v-model="employeeEditor.data.confirmPassword" class="ops-input" type="password" maxlength="64" autocomplete="new-password" /></label>
       </div>
       <div class="modal-actions"><button class="ops-button" @click="employeeEditor.open = false">取消</button><button class="ops-button primary" @click="saveEmployee">保存</button></div>
+    </section>
+  </div>
+
+  <div v-if="employeePasswordReset.open" class="modal-mask" @click.self="employeePasswordReset.open = false">
+    <section class="modal compact-modal">
+      <div class="modal-head">
+        <div><span class="panel-kicker">账号安全</span><h2>重置 {{ employeePasswordReset.employee?.name }} 的密码</h2></div>
+        <button class="modal-close" @click="employeePasswordReset.open = false">×</button>
+      </div>
+      <label class="field-label">新临时密码
+        <input v-model="employeePasswordReset.newPassword" class="ops-input" type="password" minlength="8" maxlength="64" autocomplete="new-password" />
+      </label>
+      <p class="form-hint">保存后原密码立即失效，该员工下次登录必须再次修改密码。</p>
+      <div class="modal-actions"><button class="ops-button" @click="employeePasswordReset.open = false">取消</button><button class="ops-button primary" @click="resetEmployeePassword">确认重置</button></div>
+    </section>
+  </div>
+
+  <div v-if="passwordEditor.open" class="modal-mask" @click.self="!passwordEditor.required && (passwordEditor.open = false)">
+    <section class="modal compact-modal">
+      <div class="modal-head">
+        <div><span class="panel-kicker">账号安全</span><h2>{{ passwordEditor.required ? '首次登录，请修改密码' : '修改登录密码' }}</h2></div>
+        <button v-if="!passwordEditor.required" class="modal-close" @click="passwordEditor.open = false">×</button>
+      </div>
+      <label class="field-label">当前密码<input v-model="passwordEditor.oldPassword" class="ops-input" type="password" autocomplete="current-password" /></label>
+      <label class="field-label">新密码<input v-model="passwordEditor.newPassword" class="ops-input" type="password" minlength="8" maxlength="64" autocomplete="new-password" /></label>
+      <label class="field-label">确认新密码<input v-model="passwordEditor.confirmPassword" class="ops-input" type="password" minlength="8" maxlength="64" autocomplete="new-password" /></label>
+      <p class="form-hint">至少8位，建议同时包含字母和数字。</p>
+      <div class="modal-actions"><button v-if="!passwordEditor.required" class="ops-button" @click="passwordEditor.open = false">取消</button><button class="ops-button primary" @click="changeOwnPassword">保存新密码</button></div>
     </section>
   </div>
 
   <div v-if="qr.open" class="modal-mask" @click.self="qr.open = false">
     <section class="qr-modal">
       <button class="modal-close" @click="qr.open = false">×</button>
-      <div class="panel-kicker">SCAN TO ORDER</div>
+      <div class="panel-kicker">扫码点餐</div>
       <h2>桌台 {{ qr.name }}</h2>
       <img :src="qr.imageUrl" :alt="`${qr.name} 桌台点餐二维码`" />
       <p class="qr-url">{{ qr.orderUrl }}</p>
@@ -1265,13 +1420,15 @@ onBeforeUnmount(() => {
 .secondary-nav button > span { width: 25px; height: 25px; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.12); border-radius: 7px; }
 .secondary-nav button:hover, .secondary-nav button.active { background: rgba(255,255,255,.1); color: #fff; }
 .side-user {
-  display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 9px;
+  display: grid; grid-template-columns: 34px 1fr auto auto; align-items: center; gap: 9px;
   margin-top: auto; padding: 14px 4px 2px; border-top: 1px solid rgba(255,255,255,.1);
 }
 .avatar { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: #d9b9a8; color: var(--ops-brand-dark); font-weight: 700; }
 .side-user strong, .side-user small { display: block; }
-.side-user strong { font-size: 11px; }.side-user small { margin-top: 3px; color: rgba(255,255,255,.5); font-size: 9px; }
-.side-user button { padding: 0; border: 0; background: transparent; color: rgba(255,255,255,.52); font-size: 10px; }
+.side-user strong { font-size: 12px; }.side-user small { margin-top: 3px; color: rgba(255,255,255,.58); font-size: 10px; }
+.side-user button { padding: 3px 0; border: 0; background: transparent; color: rgba(255,255,255,.65); font-size: 11px; }
+.compact-modal { max-width: 520px; }
+.form-hint { margin: 10px 0 0; color: var(--ops-muted); font-size: 12px; line-height: 1.6; }
 
 .workspace { min-width: 0; }
 .topbar {
@@ -1373,6 +1530,9 @@ onBeforeUnmount(() => {
 .flavor-editor legend { padding: 0 6px; color: var(--ops-muted); font-size: 11px; }
 .flavor-row { display: grid; grid-template-columns: 150px 1fr auto; gap: 8px; margin-bottom: 9px; }
 .flavor-row button { border: 0; background: transparent; color: var(--ops-brand); font-size: 11px; }
+.setmeal-quantity { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; padding: 9px 11px; border-radius: 8px; background: #f5f1ec; }
+.setmeal-quantity label { display: flex; align-items: center; gap: 8px; }
+.setmeal-quantity .ops-input { width: 76px; min-height: 34px; }
 .advanced-actions { position: relative; }
 .advanced-actions summary { cursor: pointer; color: var(--ops-brand); list-style: none; }
 .advanced-actions[open] { display: flex; gap: 8px; align-items: center; }

@@ -4,6 +4,9 @@ import com.dinehub.constant.JwtClaimsConstant;
 import com.dinehub.context.BaseContext;
 import com.dinehub.properties.JwtProperties;
 import com.dinehub.utils.JwtUtil;
+import com.dinehub.entity.Employee;
+import com.dinehub.mapper.EmployeeMapper;
+import com.dinehub.constant.StatusConstant;
 import io.jsonwebtoken.Claims;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +25,8 @@ public class JwtTokenAdminInterceptor implements HandlerInterceptor {
 
     @Autowired
     private JwtProperties jwtProperties;
+    @Autowired
+    private EmployeeMapper employeeMapper;
 
     /**
      * 校验jwt
@@ -46,9 +51,26 @@ public class JwtTokenAdminInterceptor implements HandlerInterceptor {
         try {
             Claims claims = JwtUtil.parseJWT(jwtProperties.getAdminSecretKey(), token);
             Long empId = Long.valueOf(claims.get(JwtClaimsConstant.EMP_ID).toString());
+            Employee employee = employeeMapper.getById(empId);
+            if (employee == null || !StatusConstant.ENABLE.equals(employee.getStatus())) {
+                response.setStatus(401);
+                return false;
+            }
+            String path = request.getRequestURI();
+            if (Boolean.TRUE.equals(employee.getMustChangePassword())
+                    && !path.endsWith("/admin/employee/password")
+                    && !path.endsWith("/admin/employee/logout")) {
+                response.setStatus(428);
+                return false;
+            }
+            if (requiresAdmin(path) && !"ADMIN".equals(employee.getRole())) {
+                response.setStatus(403);
+                return false;
+            }
             //令牌是凭据,日志只记录解析出的身份,不落完整token
             log.debug("admin request authenticated, empId={}", empId);
             BaseContext.setCurrentId(empId);
+            BaseContext.setCurrentRole(employee.getRole());
             //3、通过，放行
             return true;
         } catch (Exception ex) {
@@ -56,6 +78,16 @@ public class JwtTokenAdminInterceptor implements HandlerInterceptor {
             response.setStatus(401);
             return false;
         }
+    }
+
+    private boolean requiresAdmin(String path) {
+        if (path.endsWith("/admin/employee/password") || path.endsWith("/admin/employee/logout")) {
+            return false;
+        }
+        if (path.startsWith("/admin/employee")) {
+            return true;
+        }
+        return path.contains("/rebuild-cache") || path.contains("/reconciliation");
     }
 
     /**

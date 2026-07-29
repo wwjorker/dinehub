@@ -84,7 +84,7 @@ onMounted(load)
   <div class="page detail-page">
     <header class="detail-hero">
       <button class="hero-back" aria-label="返回" @click="router.back()">‹</button>
-      <div class="eyebrow">ORDER DETAIL</div>
+      <div class="eyebrow">订单进度</div>
       <h1>{{ statusMeta[order?.status]?.text || '订单详情' }}</h1>
       <p>{{ statusMeta[order?.status]?.note || '正在获取最新状态。' }}</p>
     </header>
@@ -125,6 +125,7 @@ onMounted(load)
           <div v-if="order.fulfillmentType === 2"><dt>桌台</dt><dd>{{ order.tableName || '已绑定桌台' }}</dd></div>
           <template v-else>
             <div><dt>收货人</dt><dd>{{ order.consignee || '—' }}</dd></div>
+            <div><dt>联系电话</dt><dd>{{ order.phone || '—' }}</dd></div>
             <div><dt>配送地址</dt><dd>{{ order.address || '—' }}</dd></div>
           </template>
           <div v-if="order.remark"><dt>备注</dt><dd>{{ order.remark }}</dd></div>

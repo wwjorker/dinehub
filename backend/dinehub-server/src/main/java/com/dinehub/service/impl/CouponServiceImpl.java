@@ -19,6 +19,7 @@ import com.dinehub.seckill.SeckillTerminalService;
 import com.dinehub.vo.SeckillResultVO;
 import com.dinehub.vo.SeckillTicketVO;
 import com.dinehub.vo.UserCouponVO;
+import com.dinehub.vo.SeckillCampaignVO;
 import com.github.pagehelper.Page;
 import com.github.pagehelper.PageHelper;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +33,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.Instant;
+import java.util.stream.Collectors;
 import java.util.List;
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -47,6 +51,7 @@ public class CouponServiceImpl implements CouponService {
     public static final String BOUGHT_KEY_PREFIX = SeckillRedisLedger.BOUGHT_KEY_PREFIX;
     //活动结束后再保留一天,避免脏key常驻
     private static final Duration KEY_TTL_MARGIN = Duration.ofDays(1);
+    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Shanghai");
 
     public static final long SECKILL_GRANTED = 0L;
     public static final long SECKILL_SOLD_OUT = 1L;
@@ -79,6 +84,16 @@ public class CouponServiceImpl implements CouponService {
         if (Coupon.TYPE_SECKILL.equals(couponDTO.getType())
                 && (couponDTO.getSeckillStartTime() == null || couponDTO.getSeckillEndTime() == null)) {
             throw new SeckillBusinessException(MessageConstant.COUPON_TIME_REQUIRED);
+        }
+        if (!Coupon.TYPE_SECKILL.equals(couponDTO.getType())) {
+            throw new SeckillBusinessException("当前版本只支持创建秒杀券");
+        }
+        if (couponDTO.getMinAmount() > 0
+                && couponDTO.getMinAmount() < couponDTO.getDiscountAmount()) {
+            throw new SeckillBusinessException("使用门槛为0表示无门槛，否则不能低于优惠金额");
+        }
+        if (!couponDTO.getSeckillEndTime().isAfter(couponDTO.getSeckillStartTime())) {
+            throw new SeckillBusinessException("活动结束时间必须晚于开始时间");
         }
         Coupon coupon = new Coupon();
         BeanUtils.copyProperties(couponDTO, coupon);
@@ -309,7 +324,28 @@ public class CouponServiceImpl implements CouponService {
         return userCouponMapper.listByUserId(userId);
     }
 
-    public List<Coupon> listActiveSeckill() {
-        return couponMapper.listActiveSeckill();
+    public List<SeckillCampaignVO> listActiveSeckill() {
+        Instant serverNow = Instant.now();
+        return couponMapper.listActiveSeckill().stream()
+                .map(coupon -> {
+                    Instant start = coupon.getSeckillStartTime().atZone(BUSINESS_ZONE).toInstant();
+                    Instant end = coupon.getSeckillEndTime().atZone(BUSINESS_ZONE).toInstant();
+                    String phase = serverNow.isBefore(start) ? "SCHEDULED"
+                            : !serverNow.isBefore(end) ? "ENDED"
+                            : coupon.getRemainingStock() <= 0 ? "SOLD_OUT" : "LIVE";
+                    return SeckillCampaignVO.builder()
+                            .id(coupon.getId())
+                            .title(coupon.getTitle())
+                            .discountAmount(coupon.getDiscountAmount())
+                            .minAmount(coupon.getMinAmount())
+                            .totalStock(coupon.getTotalStock())
+                            .remainingStock(coupon.getRemainingStock())
+                            .serverTimeEpochMs(serverNow.toEpochMilli())
+                            .startTimeEpochMs(start.toEpochMilli())
+                            .endTimeEpochMs(end.toEpochMilli())
+                            .phase(phase)
+                            .build();
+                })
+                .collect(Collectors.toList());
     }
 }

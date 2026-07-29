@@ -138,10 +138,14 @@ onMounted(async () => {
         <van-loading v-if="loading" class="loading" vertical>正在备菜…</van-loading>
         <van-empty v-else-if="!products.length" description="这个分类暂时没有菜品" />
         <article v-for="item in products" v-else :key="`${item.productType}-${item.id}`" class="product">
-          <button class="product-mark" @click="item.productType === 'setmeal' && showSetmeal(item)">
+          <div class="product-mark" :class="{ clickable: item.productType === 'setmeal' }"
+            :role="item.productType === 'setmeal' ? 'button' : undefined"
+            :tabindex="item.productType === 'setmeal' ? 0 : undefined"
+            @click="item.productType === 'setmeal' && showSetmeal(item)"
+            @keydown.enter="item.productType === 'setmeal' && showSetmeal(item)">
             <span>{{ (item.name || '食').slice(0, 1) }}</span>
             <img v-if="item.image" :src="item.image" :alt="item.name" @error="$event.target.remove()" />
-          </button>
+          </div>
           <div class="product-info">
             <h2>{{ item.name }}</h2>
             <p>{{ item.description || (item.productType === 'setmeal' ? '搭配完整，适合一起分享' : '现点现做') }}</p>
@@ -204,22 +208,24 @@ onMounted(async () => {
 .category-list button { width: 100%; min-height: 55px; padding: 8px 9px; border: 0; border-left: 3px solid transparent; background: transparent; color: #615b54; text-align: left; cursor: pointer; }
 .category-list button.active { border-left-color: var(--brand); background: var(--card); color: var(--ink); font-weight: 700; }
 .category-list span, .category-list small { display: block; }
-.category-list small { margin-top: 2px; color: #a0968c; font-size: 9px; font-weight: 400; }
+.category-list span { overflow: hidden; font-size: 12px; line-height: 1.35; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.category-list small { margin-top: 3px; color: #8e857c; font-size: 10px; font-weight: 400; }
 .product-list { padding: 13px 12px 90px; min-width: 0; }
 .category-heading { display: flex; justify-content: space-between; align-items: baseline; margin: 0 2px 12px; }
 .category-heading span { font-weight: 700; }
 .category-heading small { color: #aaa198; }
 .loading { padding: 60px 0; }
 .product { display: flex; gap: 12px; padding: 13px 0; border-bottom: 1px solid #eee9e3; }
-.product-mark { position: relative; overflow: hidden; border: 0; cursor: pointer; }
+.product-mark { position: relative; overflow: hidden; border: 0; cursor: default; }
+.product-mark.clickable { cursor: pointer; }
 .product-mark img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .product:nth-of-type(3n+1) .product-mark { background: #e3ece4; color: var(--forest); }
 .product:nth-of-type(3n+2) .product-mark { background: #ede4d6; color: #805d32; }
 .product-info { flex: 1; min-width: 0; }
 .product-info h2 { margin: 1px 0 4px; font-size: 15px; }
-.product-info p { min-height: 32px; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.product-info p { min-height: 34px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .product-bottom { display: flex; justify-content: space-between; align-items: center; margin-top: 7px; }
-.add-button { width: 27px; height: 27px; border: 0; border-radius: 50%; background: var(--brand); color: white; font-size: 19px; line-height: 1; cursor: pointer; }
+.add-button { width: 40px; height: 40px; border: 0; border-radius: 50%; background: var(--brand); color: white; font-size: 22px; line-height: 1; cursor: pointer; }
 .add-button:disabled { background: #c8c1ba; }
 .option-sheet { padding: 24px 20px 30px; }
 .option-sheet h2 { margin: 6px 0 20px; font-family: "STSong", serif; font-size: 24px; }

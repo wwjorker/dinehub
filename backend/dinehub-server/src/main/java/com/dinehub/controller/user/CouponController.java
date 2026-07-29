@@ -8,6 +8,7 @@ import com.dinehub.service.CouponService;
 import com.dinehub.vo.UserCouponVO;
 import com.dinehub.vo.SeckillResultVO;
 import com.dinehub.vo.SeckillTicketVO;
+import com.dinehub.vo.SeckillCampaignVO;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.extern.slf4j.Slf4j;
@@ -54,7 +55,7 @@ public class CouponController {
 
     @GetMapping("/available")
     @ApiOperation("进行中的秒杀活动")
-    public Result<List<Coupon>> available() {
+    public Result<List<SeckillCampaignVO>> available() {
         return Result.success(couponService.listActiveSeckill());
     }
 }

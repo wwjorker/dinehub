@@ -4,11 +4,16 @@ import com.dinehub.constant.JwtClaimsConstant;
 import com.dinehub.dto.EmployeeDTO;
 import com.dinehub.dto.EmployeeLoginDTO;
 import com.dinehub.dto.EmployeePageQueryDTO;
+import com.dinehub.dto.PasswordEditDTO;
+import com.dinehub.dto.PasswordResetDTO;
 import com.dinehub.entity.Employee;
 import com.dinehub.properties.JwtProperties;
 import com.dinehub.result.PageResult;
 import com.dinehub.result.Result;
 import com.dinehub.service.EmployeeService;
+import com.dinehub.service.AdminLoginAttemptService;
+import com.dinehub.exception.BaseException;
+import com.dinehub.exception.RateLimitException;
 import com.dinehub.utils.JwtUtil;
 import com.dinehub.vo.EmployeeLoginVO;
 import io.swagger.annotations.Api;
@@ -19,6 +24,8 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
 import java.util.Map;
+import javax.validation.Valid;
+import javax.servlet.http.HttpServletRequest;
 
 /**
  * 员工管理
@@ -33,6 +40,8 @@ public class EmployeeController {
     private EmployeeService employeeService;
     @Autowired
     private JwtProperties jwtProperties;
+    @Autowired
+    private AdminLoginAttemptService loginAttemptService;
 
     /**
      * 登录
@@ -42,11 +51,23 @@ public class EmployeeController {
      */
     @PostMapping("/login")
     @ApiOperation(value = "员工登录")
-    public Result<EmployeeLoginVO> login(@RequestBody EmployeeLoginDTO employeeLoginDTO) {
+    public Result<EmployeeLoginVO> login(@Valid @RequestBody EmployeeLoginDTO employeeLoginDTO,
+                                        HttpServletRequest request) {
         //登录 DTO 含明文密码，日志只记录账号标识
         log.info("员工登录，用户名：{}", employeeLoginDTO.getUsername());
 
-        Employee employee = employeeService.login(employeeLoginDTO);
+        String remoteAddress = request.getRemoteAddr();
+        if (loginAttemptService.isBlocked(employeeLoginDTO.getUsername(), remoteAddress)) {
+            throw new RateLimitException("登录失败次数过多，请10分钟后重试");
+        }
+        Employee employee;
+        try {
+            employee = employeeService.login(employeeLoginDTO);
+        } catch (BaseException ex) {
+            loginAttemptService.recordFailure(employeeLoginDTO.getUsername(), remoteAddress);
+            throw ex;
+        }
+        loginAttemptService.clear(employeeLoginDTO.getUsername(), remoteAddress);
 
         //登录成功后，生成jwt令牌
         Map<String, Object> claims = new HashMap<>();
@@ -61,6 +82,8 @@ public class EmployeeController {
                 .userName(employee.getUsername())
                 .name(employee.getName())
                 .token(token)
+                .role(employee.getRole())
+                .mustChangePassword(employee.getMustChangePassword())
                 .build();
 
         return Result.success(employeeLoginVO);
@@ -84,8 +107,8 @@ public class EmployeeController {
      */
     @PostMapping
     @ApiOperation("新增员工")
-    public Result save(@RequestBody EmployeeDTO employeeDTO){
-        log.info("新增员工：{}",employeeDTO);
+    public Result save(@Valid @RequestBody EmployeeDTO employeeDTO){
+        log.info("新增员工，username={}", employeeDTO.getUsername());
         employeeService.save(employeeDTO);
         return Result.success();
     }
@@ -136,9 +159,24 @@ public class EmployeeController {
      */
     @PutMapping
     @ApiOperation("编辑员工信息")
-    public Result update(@RequestBody EmployeeDTO employeeDTO){
-        log.info("编辑员工信息：{}", employeeDTO);
+    public Result update(@Valid @RequestBody EmployeeDTO employeeDTO){
+        log.info("编辑员工，id={}", employeeDTO.getId());
         employeeService.update(employeeDTO);
+        return Result.success();
+    }
+
+    @PutMapping("/password")
+    @ApiOperation("修改当前员工密码")
+    public Result changePassword(@Valid @RequestBody PasswordEditDTO passwordEditDTO) {
+        employeeService.changePassword(passwordEditDTO);
+        return Result.success();
+    }
+
+    @PutMapping("/{id}/reset-password")
+    @ApiOperation("管理员重置员工密码")
+    public Result resetPassword(@PathVariable Long id,
+                                @Valid @RequestBody PasswordResetDTO passwordResetDTO) {
+        employeeService.resetPassword(id, passwordResetDTO);
         return Result.success();
     }
 }

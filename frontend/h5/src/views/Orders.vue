@@ -1,12 +1,14 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api'
 
 const router = useRouter()
+const route = useRoute()
 const loading = ref(false)
 const orders = ref([])
-const activeFilter = ref('all')
+const validFilters = ['all', 'pay', 'making', 'done', 'cancelled']
+const activeFilter = ref(validFilters.includes(route.query.filter) ? route.query.filter : 'all')
 
 const filters = [
   { key: 'all', label: '全部' },

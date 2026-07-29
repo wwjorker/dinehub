@@ -97,7 +97,10 @@ onMounted(load)
           <span>{{ order.fulfillmentType === 2 ? '堂食' : '外送' }}</span>
         </div>
         <div v-for="item in order.orderDetailList" :key="item.id" class="detail-item">
-          <div class="product-mark">{{ item.name?.slice(0, 1) }}</div>
+          <div class="product-mark">
+            <span>{{ item.name?.slice(0, 1) }}</span>
+            <img v-if="item.image" :src="item.image" :alt="item.name" @error="$event.target.remove()" />
+          </div>
           <div class="item-copy">
             <strong>{{ item.name }}</strong>
             <small v-if="item.dishFlavor">{{ item.dishFlavor }}</small>
@@ -188,6 +191,8 @@ onMounted(load)
 }
 
 .detail-item .product-mark { width: 48px; height: 48px; font-size: 18px; }
+.detail-item .product-mark { position: relative; overflow: hidden; }
+.detail-item .product-mark img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .item-copy { min-width: 0; }
 .item-copy strong, .item-copy small { display: block; }
 .item-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }

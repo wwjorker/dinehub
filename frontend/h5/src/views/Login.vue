@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import { api } from '../api'
-import { saveLogin, saveTable, store } from '../store'
+import { demoDeviceId, saveLogin, saveTable, store } from '../store'
 
 const route = useRoute()
 const router = useRouter()
@@ -24,7 +24,7 @@ async function login() {
   }
   loading.value = true
   try {
-    const data = await api.demoLogin(value)
+    const data = await api.demoLogin(value, demoDeviceId())
     saveLogin(data.token, value)
     if (store.tableToken) {
       try {
@@ -64,7 +64,7 @@ async function login() {
       <button :disabled="loading" @click="login">
         {{ loading ? '正在进入…' : '进入食汇' }}
       </button>
-      <p>当前使用开发环境演示登录；正式环境应接入微信授权。</p>
+      <p>昵称只用于展示；本机拥有独立的演示身份，不会与同名用户串号。正式环境接入微信授权。</p>
     </section>
   </main>
 </template>

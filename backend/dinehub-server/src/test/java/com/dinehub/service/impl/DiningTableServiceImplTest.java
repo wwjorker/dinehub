@@ -76,4 +76,19 @@ class DiningTableServiceImplTest {
 
         assertThrows(OrderBusinessException.class, () -> diningTableService.getAvailableByToken("tok"));
     }
+
+    @Test
+    void rotateQrTokenInvalidatesPreviousPrintedValue() {
+        DiningTable stored = DiningTable.builder()
+                .id(5L).name("A05").qrToken("old-token").status(StatusConstant.ENABLE).build();
+        when(diningTableMapper.getById(5L)).thenReturn(stored);
+
+        DiningTable result = diningTableService.rotateQrToken(5L);
+
+        ArgumentCaptor<DiningTable> captor = ArgumentCaptor.forClass(DiningTable.class);
+        verify(diningTableMapper).update(captor.capture());
+        assertNotEquals("old-token", captor.getValue().getQrToken());
+        assertEquals(32, captor.getValue().getQrToken().length());
+        assertNotNull(result);
+    }
 }

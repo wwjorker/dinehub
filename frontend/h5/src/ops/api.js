@@ -136,6 +136,11 @@ export const opsApi = {
   setDishStatus: (id, status) =>
     request(`/admin/dish/status/${encodeURIComponent(status)}?${query({ id })}`, { method: 'POST' }),
   deleteDish: (id) => request(`/admin/dish?${query({ ids: id })}`, { method: 'DELETE' }),
+  uploadImage: (file) => {
+    const body = new FormData()
+    body.append('file', file)
+    return request('/admin/common/upload', { method: 'POST', body })
+  },
 
   setmealPage: (params) => request(`/admin/setmeal/page?${query(params)}`),
   setmealDetail: (id) => request(`/admin/setmeal/${encodeURIComponent(id)}`),
@@ -151,6 +156,8 @@ export const opsApi = {
   setTableStatus: (id, status) =>
     request(`/admin/table/status/${encodeURIComponent(status)}?${query({ id })}`, { method: 'POST' }),
   deleteTable: (id) => request(`/admin/table/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  tableQrInfo: (id) => request(`/admin/table/qrcode-info/${encodeURIComponent(id)}`),
+  rotateTableQr: (id) => request(`/admin/table/qrcode/${encodeURIComponent(id)}/rotate`, { method: 'POST' }),
 
   couponPage: (params) => request(`/admin/coupon/page?${query(params)}`),
   saveCoupon: (payload) => request('/admin/coupon', { method: 'POST', body: JSON.stringify(payload) }),

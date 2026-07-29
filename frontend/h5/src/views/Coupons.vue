@@ -1,12 +1,13 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api'
 
 const router = useRouter()
+const route = useRoute()
 const coupons = ref([])
 const loading = ref(false)
-const active = ref('all')
+const active = ref(['all', '1', '2', '4'].includes(route.query.filter) ? route.query.filter : 'all')
 
 const statusMeta = {
   1: { text: '可使用', tone: 'available' },

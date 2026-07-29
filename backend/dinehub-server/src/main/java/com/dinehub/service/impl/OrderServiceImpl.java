@@ -45,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
 @Slf4j
@@ -204,7 +205,7 @@ public class OrderServiceImpl implements OrderService {
             orders.setConsignee(diningTable.getName());
         } else {
             orders.setFulfillmentType(Orders.DELIVERY);
-            orders.setAddress(addressBook.getDetail());
+            orders.setAddress(buildFullAddress(addressBook));
             orders.setPhone(addressBook.getPhone());
             orders.setConsignee(addressBook.getConsignee());
         }
@@ -250,6 +251,14 @@ public class OrderServiceImpl implements OrderService {
 
         //5. 封装VO返回结果
         return toSubmitVO(orders);
+    }
+
+    private String buildFullAddress(AddressBook addressBook) {
+        return Stream.of(addressBook.getProvinceName(), addressBook.getCityName(),
+                        addressBook.getDistrictName(), addressBook.getDetail())
+                .filter(value -> value != null && !value.trim().isEmpty())
+                .map(String::trim)
+                .collect(Collectors.joining(" "));
     }
 
     private OrderSubmitVO toSubmitVO(Orders orders) {

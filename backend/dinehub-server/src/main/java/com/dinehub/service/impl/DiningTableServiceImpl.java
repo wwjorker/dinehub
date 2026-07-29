@@ -74,4 +74,12 @@ public class DiningTableServiceImpl implements DiningTableService {
         }
         return diningTable;
     }
+
+    public DiningTable rotateQrToken(Long id) {
+        DiningTable diningTable = getById(id);
+        diningTable.setQrToken(UUID.randomUUID().toString().replace("-", ""));
+        diningTable.setStatus(null);
+        diningTableMapper.update(diningTable);
+        return getById(id);
+    }
 }

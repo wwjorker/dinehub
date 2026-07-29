@@ -13,6 +13,7 @@ FROM eclipse-temurin:17-jre-alpine
 RUN addgroup -S dinehub && adduser -S dinehub -G dinehub
 WORKDIR /app
 COPY --from=build /workspace/backend/dinehub-server/target/dinehub-server-1.0-SNAPSHOT.jar app.jar
+RUN mkdir -p /app/uploads && chown -R dinehub:dinehub /app/uploads
 USER dinehub
 EXPOSE 8080
 HEALTHCHECK --interval=15s --timeout=3s --start-period=45s --retries=5 \

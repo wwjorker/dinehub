@@ -14,6 +14,7 @@ const fulfillment = ref(store.tableToken ? 'dineIn' : 'delivery')
 const selectedAddressId = ref(null)
 const selectedCouponId = ref(null)
 const couponSheet = ref(false)
+const addressSheet = ref(false)
 const submitting = ref(false)
 
 const itemCount = computed(() => items.value.reduce((sum, item) => sum + item.number, 0))
@@ -76,6 +77,17 @@ function chooseCoupon(coupon) {
   couponSheet.value = false
 }
 
+function chooseAddress(address) {
+  selectedAddressId.value = address.id
+  addressSheet.value = false
+}
+
+function addressText(address) {
+  return [address.provinceName, address.cityName, address.districtName, address.detail]
+    .filter(Boolean)
+    .join(' ')
+}
+
 async function submit() {
   if (!items.value.length) return
   if (fulfillment.value === 'dineIn' && !store.tableToken) return showToast('请先扫描桌台二维码')
@@ -129,19 +141,19 @@ onMounted(load)
           <span>{{ store.tableName ? `${store.tableName} 桌` : '需扫描桌台码' }}</span>
         </button>
         <button :class="{ active: fulfillment === 'delivery' }" @click="fulfillment = 'delivery'">
-          <strong>外卖</strong>
+          <strong>外送</strong>
           <span>预计 30–45 分钟</span>
         </button>
       </section>
 
       <section v-if="fulfillment === 'delivery'" class="section-card address-card"
-        @click="router.push('/addresses')">
+        @click="addressSheet = true">
         <template v-if="selectedAddress">
           <div><strong>{{ selectedAddress.consignee }}</strong><span>{{ selectedAddress.phone }}</span></div>
-          <p>{{ selectedAddress.provinceName }}{{ selectedAddress.cityName }}{{ selectedAddress.districtName }}{{ selectedAddress.detail }}</p>
+          <p>{{ addressText(selectedAddress) }}</p>
         </template>
         <template v-else>
-          <strong>添加收货地址</strong><p>外卖订单需要一个有效地址</p>
+          <strong>添加收货地址</strong><p>外送订单需要一个有效地址</p>
         </template>
         <van-icon name="arrow" />
       </section>
@@ -149,7 +161,10 @@ onMounted(load)
       <section class="section-card cart-list">
         <h2 class="section-title">已选菜品 <small>{{ itemCount }} 份</small></h2>
         <article v-for="item in items" :key="item.id" class="cart-item">
-          <div class="product-mark">{{ (item.name || '食').slice(0, 1) }}</div>
+          <div class="product-mark">
+            <span>{{ (item.name || '食').slice(0, 1) }}</span>
+            <img v-if="item.image" :src="item.image" :alt="item.name" @error="$event.target.remove()" />
+          </div>
           <div class="cart-info">
             <strong>{{ item.name }}</strong>
             <small v-if="item.dishFlavor">{{ item.dishFlavor }}</small>
@@ -205,6 +220,24 @@ onMounted(load)
         </button>
       </div>
     </van-action-sheet>
+
+    <van-action-sheet v-model:show="addressSheet" title="选择收货地址">
+      <div class="address-sheet">
+        <button
+          v-for="address in addresses"
+          :key="address.id"
+          class="address-option"
+          :class="{ selected: selectedAddressId === address.id }"
+          @click="chooseAddress(address)"
+        >
+          <span><b>{{ address.consignee }} · {{ address.phone }}</b><small>{{ addressText(address) }}</small></span>
+          <van-icon v-if="selectedAddressId === address.id" name="success" />
+        </button>
+        <button class="manage-address" @click="addressSheet = false; router.push('/addresses')">
+          ＋ 新增或管理地址
+        </button>
+      </div>
+    </van-action-sheet>
   </div>
 </template>
 
@@ -226,6 +259,8 @@ onMounted(load)
 .cart-item { display: flex; align-items: center; gap: 11px; padding: 11px 0; border-bottom: 1px solid var(--line); }
 .cart-item:last-child { border-bottom: 0; }
 .cart-item .product-mark { width: 48px; height: 48px; font-size: 18px; }
+.cart-item .product-mark { position: relative; overflow: hidden; }
+.cart-item .product-mark img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .cart-info { flex: 1; min-width: 0; }
 .cart-info strong, .cart-info small, .cart-info span { display: block; }
 .cart-info small { margin: 2px 0; color: var(--muted); font-size: 10px; }
@@ -256,4 +291,10 @@ onMounted(load)
 .coupon-option span b, .coupon-option span small { display: block; }
 .coupon-option span small { margin-top: 3px; color: var(--muted); font-size: 10px; }
 .coupon-option.disabled { opacity: .45; }
+.address-sheet { padding: 0 14px 28px; }
+.address-option { display: grid; grid-template-columns: 1fr 24px; gap: 12px; align-items: center; width: 100%; padding: 14px 3px; border: 0; border-bottom: 1px solid var(--line); background: transparent; text-align: left; }
+.address-option b, .address-option small { display: block; }
+.address-option small { margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.address-option.selected b, .address-option.selected > i { color: var(--brand); }
+.manage-address { width: 100%; margin-top: 12px; padding: 12px; border: 1px dashed var(--line); border-radius: 9px; background: transparent; color: var(--brand); }
 </style>

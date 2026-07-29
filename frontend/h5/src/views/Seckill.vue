@@ -75,7 +75,9 @@ onBeforeUnmount(() => clearInterval(clock))
       <p class="page-subtitle">先抢资格，再在结算时由服务端校验并抵扣。</p>
     </div>
 
-    <van-empty v-if="!coupons.length" description="暂时没有进行中的活动" />
+    <van-empty v-if="!coupons.length" description="当前没有可参与的抢券活动">
+      <van-button round plain type="danger" @click="$router.push('/coupons')">查看我的优惠券</van-button>
+    </van-empty>
 
     <article v-for="coupon in coupons" :key="coupon.id" class="seckill-card">
       <div class="coupon-value">
@@ -98,8 +100,8 @@ onBeforeUnmount(() => clearInterval(clock))
     </article>
 
     <div class="flow-note">
-      <b>抢券流程</b>
-      <span>Redis 原子校验 → MQ 异步落库 → 结算占用 → 支付核销</span>
+      <b>使用说明</b>
+      <span>领取成功后可在“我的优惠券”查看；结算时满足门槛即可选择使用。</span>
     </div>
   </div>
 </template>

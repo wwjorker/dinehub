@@ -22,10 +22,12 @@ const navItems = [
   { key: 'coupons', label: '秒杀与卡券', mark: '券' },
   { key: 'employees', label: '员工管理', mark: '员' },
   { key: 'reports', label: '经营报表', mark: '报' },
-  { key: 'engineering', label: '工程看板', mark: '工' }
+  { key: 'engineering', label: '项目说明', mark: '工', secondary: true }
 ]
 
 const panelMeta = computed(() => navItems.find((item) => item.key === activePanel.value) || navItems[0])
+const primaryNavItems = computed(() => navItems.filter((item) => !item.secondary))
+const secondaryNavItems = computed(() => navItems.filter((item) => item.secondary))
 
 function toast(message) {
   clearTimeout(toastTimer)
@@ -221,6 +223,7 @@ const dishes = ref([])
 const setmeals = ref([])
 const catalogSearch = ref('')
 const editor = reactive({ open: false, kind: '', mode: 'create', data: {} })
+const imageUploading = ref(false)
 
 async function loadCatalog() {
   const [categoryPage, dishPage, setmealPage] = await Promise.all([
@@ -248,8 +251,16 @@ async function openCatalogEditor(kind, item) {
   if (kind === 'dish') {
     const detail = item ? await opsApi.dishDetail(item.id) : null
     editor.data = detail
-      ? { ...detail, flavorsText: (detail.flavors || []).map((flavor) => flavor.value).join(' / ') }
-      : { name: '', categoryId: categoriesByType(1)[0]?.id, price: 0, description: '', image: '', status: 0, flavorsText: '' }
+      ? {
+          ...detail,
+          flavors: (detail.flavors || []).map((flavor) => ({
+            id: flavor.id,
+            dishId: flavor.dishId,
+            name: flavor.name,
+            optionsText: safeFlavorOptions(flavor.value).join(' / ')
+          }))
+        }
+      : { name: '', categoryId: categoriesByType(1)[0]?.id, price: 0, description: '', image: '', status: 0, flavors: [] }
   }
   if (kind === 'setmeal') {
     const detail = item ? await opsApi.setmealDetail(item.id) : null
@@ -260,13 +271,51 @@ async function openCatalogEditor(kind, item) {
   editor.open = true
 }
 
-function buildFlavors(text, dishId) {
-  if (!text.trim()) return []
-  return [{
-    dishId,
-    name: '口味',
-    value: JSON.stringify(text.split('/').map((value) => value.trim()).filter(Boolean))
-  }]
+function safeFlavorOptions(value) {
+  try {
+    const options = JSON.parse(value)
+    return Array.isArray(options) ? options.filter((item) => typeof item === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function addFlavorGroup() {
+  editor.data.flavors ||= []
+  editor.data.flavors.push({ name: '', optionsText: '' })
+}
+
+function removeFlavorGroup(index) {
+  editor.data.flavors.splice(index, 1)
+}
+
+function buildFlavors(flavors, dishId) {
+  return (flavors || [])
+    .map((flavor) => ({
+      id: flavor.id,
+      dishId,
+      name: flavor.name?.trim(),
+      value: JSON.stringify(String(flavor.optionsText || '')
+        .split('/')
+        .map((value) => value.trim())
+        .filter(Boolean))
+    }))
+    .filter((flavor) => flavor.name && flavor.value !== '[]')
+}
+
+async function uploadCatalogImage(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  if (!['image/jpeg', 'image/png'].includes(file.type)) return toast('只支持 JPG 或 PNG 图片')
+  if (file.size > 5 * 1024 * 1024) return toast('图片不能超过 5MB')
+  imageUploading.value = true
+  try {
+    editor.data.image = await opsApi.uploadImage(file)
+    toast('图片已上传')
+  } finally {
+    imageUploading.value = false
+  }
 }
 
 async function saveCatalog() {
@@ -287,7 +336,7 @@ async function saveCatalog() {
       image: data.image?.trim() || '',
       description: data.description?.trim() || '',
       status: Number(data.status ?? 0),
-      flavors: buildFlavors(data.flavorsText || '', data.id)
+      flavors: buildFlavors(data.flavors, data.id)
     }
     if (editor.mode === 'edit') await opsApi.updateDish(payload)
     else await opsApi.saveDish(payload)
@@ -341,7 +390,7 @@ async function deleteCatalog(kind, item) {
 // Tables
 const tables = ref([])
 const tableName = ref('')
-const qr = reactive({ open: false, name: '', url: '' })
+const qr = reactive({ open: false, id: null, name: '', imageUrl: '', orderUrl: '' })
 
 async function loadTables() {
   const result = await opsApi.tablePage({ page: 1, pageSize: 100 })
@@ -370,10 +419,28 @@ async function deleteTable(table) {
 }
 
 async function showQr(table) {
-  if (qr.url) URL.revokeObjectURL(qr.url)
-  qr.url = URL.createObjectURL(await fetchBlob(`/admin/table/qrcode/${encodeURIComponent(table.id)}`))
-  qr.name = table.name
+  if (qr.imageUrl) URL.revokeObjectURL(qr.imageUrl)
+  const [blob, info] = await Promise.all([
+    fetchBlob(`/admin/table/qrcode/${encodeURIComponent(table.id)}`),
+    opsApi.tableQrInfo(table.id)
+  ])
+  qr.imageUrl = URL.createObjectURL(blob)
+  qr.id = table.id
+  qr.name = info.name
+  qr.orderUrl = info.orderUrl
   qr.open = true
+}
+
+async function copyQrUrl() {
+  await navigator.clipboard.writeText(qr.orderUrl)
+  toast('点餐链接已复制')
+}
+
+async function rotateQr() {
+  if (!window.confirm('换新后旧二维码会立即失效，确定继续吗？')) return
+  await opsApi.rotateTableQr(qr.id)
+  await showQr({ id: qr.id })
+  toast('二维码已换新，请重新打印或分享')
 }
 
 // Coupons
@@ -422,6 +489,7 @@ async function publishCoupon(coupon) {
 }
 
 async function rebuildCoupon(coupon) {
+  if (!window.confirm('仅在 Redis 缓存丢失或库存异常时执行。确定重建该活动缓存吗？')) return
   await opsApi.rebuildCoupon(coupon.id)
   toast('缓存已幂等重建')
 }
@@ -552,7 +620,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   closeOrderSocket()
   clearTimeout(toastTimer)
-  if (qr.url) URL.revokeObjectURL(qr.url)
+  if (qr.imageUrl) URL.revokeObjectURL(qr.imageUrl)
   window.removeEventListener('ops-auth-expired', handleAuthExpired)
 })
 </script>
@@ -606,7 +674,7 @@ onBeforeUnmount(() => {
       </div>
       <nav>
         <button
-          v-for="item in navItems"
+          v-for="item in primaryNavItems"
           :key="item.key"
           :class="{ active: activePanel === item.key }"
           @click="switchPanel(item.key)"
@@ -614,6 +682,17 @@ onBeforeUnmount(() => {
           <span>{{ item.mark }}</span>{{ item.label }}
         </button>
       </nav>
+      <div class="secondary-nav">
+        <span>关于项目</span>
+        <button
+          v-for="item in secondaryNavItems"
+          :key="item.key"
+          :class="{ active: activePanel === item.key }"
+          @click="switchPanel(item.key)"
+        >
+          <span>{{ item.mark }}</span>{{ item.label }}
+        </button>
+      </div>
       <div class="side-user">
         <div class="avatar">{{ (profile.name || profile.userName || '管').slice(0, 1) }}</div>
         <div><strong>{{ profile.name || '管理员' }}</strong><small>{{ profile.userName }}</small></div>
@@ -765,7 +844,7 @@ onBeforeUnmount(() => {
               <thead><tr><th>菜品</th><th>分类</th><th>价格</th><th>描述</th><th>状态</th><th>操作</th></tr></thead>
               <tbody>
                 <tr v-for="item in dishes" :key="item.id">
-                  <td>{{ item.name }}</td><td>{{ item.categoryName }}</td><td>¥{{ money(item.price) }}</td>
+                  <td><div class="catalog-name"><img v-if="item.image" :src="item.image" alt="" @error="$event.target.style.display='none'" /><span>{{ item.name }}</span></div></td><td>{{ item.categoryName }}</td><td>¥{{ money(item.price) }}</td>
                   <td class="wrap-cell">{{ item.description || '—' }}</td>
                   <td><span class="status-tag" :class="{ off: item.status !== 1 }">{{ item.status === 1 ? '起售' : '停售' }}</span></td>
                   <td class="row-actions">
@@ -780,7 +859,7 @@ onBeforeUnmount(() => {
               <thead><tr><th>套餐</th><th>分类</th><th>价格</th><th>描述</th><th>状态</th><th>操作</th></tr></thead>
               <tbody>
                 <tr v-for="item in setmeals" :key="item.id">
-                  <td>{{ item.name }}</td><td>{{ item.categoryName }}</td><td>¥{{ money(item.price) }}</td>
+                  <td><div class="catalog-name"><img v-if="item.image" :src="item.image" alt="" @error="$event.target.style.display='none'" /><span>{{ item.name }}</span></div></td><td>{{ item.categoryName }}</td><td>¥{{ money(item.price) }}</td>
                   <td class="wrap-cell">{{ item.description || '—' }}</td>
                   <td><span class="status-tag" :class="{ off: item.status !== 1 }">{{ item.status === 1 ? '起售' : '停售' }}</span></td>
                   <td class="row-actions">
@@ -826,7 +905,7 @@ onBeforeUnmount(() => {
         <section class="ops-card">
           <div class="ops-table-wrap">
             <table class="ops-table">
-              <thead><tr><th>活动</th><th>优惠</th><th>库存</th><th>时间</th><th>状态</th><th>工程操作</th></tr></thead>
+              <thead><tr><th>活动</th><th>优惠</th><th>库存</th><th>时间</th><th>状态</th><th>操作</th></tr></thead>
               <tbody>
                 <tr v-for="coupon in coupons" :key="coupon.id">
                   <td>{{ coupon.title }}</td>
@@ -835,9 +914,12 @@ onBeforeUnmount(() => {
                   <td class="wrap-cell">{{ formatOrderTime(coupon.seckillStartTime) }} 至 {{ formatOrderTime(coupon.seckillEndTime) }}</td>
                   <td><span class="status-tag" :class="{ off: coupon.status !== 1 }">{{ coupon.status === 1 ? '已发布' : '未发布' }}</span></td>
                   <td class="row-actions">
-                    <button v-if="coupon.status !== 1" @click="publishCoupon(coupon)">发布预热</button>
-                    <button v-else @click="rebuildCoupon(coupon)">重建缓存</button>
-                    <button @click="reconcileCoupon(coupon)">库存对账</button>
+                    <button v-if="coupon.status !== 1" @click="publishCoupon(coupon)">发布活动</button>
+                    <details v-else class="advanced-actions">
+                      <summary>高级运维</summary>
+                      <button @click="reconcileCoupon(coupon)">库存对账</button>
+                      <button @click="rebuildCoupon(coupon)">重建缓存</button>
+                    </details>
                   </td>
                 </tr>
               </tbody>
@@ -1020,11 +1102,32 @@ onBeforeUnmount(() => {
           </label>
           <label class="field-label">价格（元）<input v-model.number="editor.data.price" class="ops-input" type="number" min="0.01" step="0.01" /></label>
           <label class="field-label full">描述<textarea v-model="editor.data.description" class="ops-textarea" maxlength="200" rows="3" /></label>
-          <label class="field-label full">图片 URL（本地演示可留空）<input v-model="editor.data.image" class="ops-input" maxlength="500" /></label>
+          <div class="field-label full image-editor">
+            <span>菜品图片</span>
+            <div class="image-editor-row">
+              <div class="image-preview">
+                <img v-if="editor.data.image" :src="editor.data.image" alt="菜品图片预览" @error="$event.target.style.display='none'" />
+                <span v-else>暂无图片</span>
+              </div>
+              <label class="ops-button upload-button">
+                {{ imageUploading ? '上传中…' : '上传 JPG / PNG' }}
+                <input type="file" accept="image/jpeg,image/png" :disabled="imageUploading" @change="uploadCatalogImage" />
+              </label>
+              <button v-if="editor.data.image" class="ops-button" type="button" @click="editor.data.image = ''">移除</button>
+            </div>
+            <small>最大 5MB；服务端会解码并重新编码图片。本地开发保存到 Docker 数据卷。</small>
+          </div>
         </template>
-        <label v-if="editor.kind === 'dish'" class="field-label full">口味（用 / 分隔）
-          <input v-model="editor.data.flavorsText" class="ops-input" placeholder="微辣 / 中辣 / 特辣" maxlength="120" />
-        </label>
+        <fieldset v-if="editor.kind === 'dish'" class="flavor-editor full">
+          <legend>规格与口味</legend>
+          <div v-for="(flavor, index) in editor.data.flavors" :key="flavor.id || index" class="flavor-row">
+            <input v-model="flavor.name" class="ops-input" maxlength="20" placeholder="分组名，如：辣度" />
+            <input v-model="flavor.optionsText" class="ops-input" maxlength="160" placeholder="选项用 / 分隔，如：微辣 / 中辣 / 特辣" />
+            <button type="button" aria-label="删除口味分组" @click="removeFlavorGroup(index)">删除</button>
+          </div>
+          <button type="button" class="ops-button" @click="addFlavorGroup">＋ 添加口味分组</button>
+          <small>每个分组在用户端必须选择一项；可同时设置“辣度”“温度”“忌口”等多个分组。</small>
+        </fieldset>
         <fieldset v-if="editor.kind === 'setmeal'" class="dish-picker full">
           <legend>选择套餐菜品</legend>
           <label v-for="dish in dishes" :key="dish.id">
@@ -1096,8 +1199,16 @@ onBeforeUnmount(() => {
       <button class="modal-close" @click="qr.open = false">×</button>
       <div class="panel-kicker">SCAN TO ORDER</div>
       <h2>桌台 {{ qr.name }}</h2>
-      <img :src="qr.url" :alt="`${qr.name} 桌台点餐二维码`" />
-      <p>手机与电脑处于可互访网络时，可直接扫码进入用户端。</p>
+      <img :src="qr.imageUrl" :alt="`${qr.name} 桌台点餐二维码`" />
+      <p class="qr-url">{{ qr.orderUrl }}</p>
+      <p v-if="/localhost|127\.0\.0\.1/.test(qr.orderUrl)" class="qr-warning">
+        当前链接只适合本机测试；真实手机扫码前请把 DINEHUB_H5_BASE_URL 改为电脑局域网地址或公网域名。
+      </p>
+      <p v-else>手机与电脑处于可互访网络时，可直接扫码进入用户端。</p>
+      <div class="qr-actions">
+        <button class="ops-button primary" @click="copyQrUrl">复制链接</button>
+        <button class="ops-button" @click="rotateQr">换新二维码</button>
+      </div>
     </section>
   </div>
 </template>
@@ -1148,6 +1259,11 @@ onBeforeUnmount(() => {
 }
 .sidebar nav button span { width: 25px; height: 25px; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.12); border-radius: 7px; font: 700 11px/1 "STSong", serif; }
 .sidebar nav button:hover, .sidebar nav button.active { background: rgba(255,255,255,.1); color: #fff; }
+.secondary-nav { margin-top: auto; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.1); }
+.secondary-nav > span { display: block; margin: 0 9px 6px; color: rgba(255,255,255,.38); font-size: 9px; letter-spacing: .12em; }
+.secondary-nav button { display: flex; align-items: center; gap: 11px; width: 100%; padding: 8px 10px; border: 0; border-radius: 9px; background: transparent; color: rgba(255,255,255,.58); text-align: left; }
+.secondary-nav button > span { width: 25px; height: 25px; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.12); border-radius: 7px; }
+.secondary-nav button:hover, .secondary-nav button.active { background: rgba(255,255,255,.1); color: #fff; }
 .side-user {
   display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 9px;
   margin-top: auto; padding: 14px 4px 2px; border-top: 1px solid rgba(255,255,255,.1);
@@ -1244,8 +1360,31 @@ onBeforeUnmount(() => {
 .reconcile-status { display: flex; justify-content: space-between; padding: 14px; border-radius: 10px; background: #e3efe6; color: #356447; font-size: 12px; }
 .reconcile-status.danger { background: #f5dfda; color: var(--ops-brand-dark); }
 .reconcile-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 9px; margin-top: 12px; }
-.qr-modal { position: relative; width: min(360px, 100%); padding: 28px; border-radius: 15px; background: var(--ops-card); text-align: center; }
-.qr-modal .modal-close { position: absolute; top: 14px; right: 14px; }.qr-modal h2 { font: 700 23px/1 "STSong", serif; }.qr-modal img { width: 250px; height: 250px; max-width: 100%; }.qr-modal p { color: var(--ops-muted); font-size: 10px; line-height: 1.6; }
+.catalog-name { display: flex; align-items: center; gap: 9px; min-width: 130px; }
+.catalog-name img { width: 38px; height: 38px; border-radius: 8px; object-fit: cover; background: #eee8e1; }
+.image-editor > span { display: block; margin-bottom: 7px; }
+.image-editor-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.image-preview { width: 90px; height: 68px; display: grid; place-items: center; overflow: hidden; border: 1px dashed var(--ops-line); border-radius: 10px; background: #f6f2ec; color: var(--ops-muted); font-size: 10px; }
+.image-preview img { width: 100%; height: 100%; object-fit: cover; }
+.upload-button { position: relative; overflow: hidden; cursor: pointer; }
+.upload-button input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.image-editor small, .flavor-editor small { display: block; margin-top: 8px; color: var(--ops-muted); font-size: 10px; line-height: 1.55; }
+.flavor-editor { margin: 0; padding: 14px; border: 1px solid var(--ops-line); border-radius: 11px; }
+.flavor-editor legend { padding: 0 6px; color: var(--ops-muted); font-size: 11px; }
+.flavor-row { display: grid; grid-template-columns: 150px 1fr auto; gap: 8px; margin-bottom: 9px; }
+.flavor-row button { border: 0; background: transparent; color: var(--ops-brand); font-size: 11px; }
+.advanced-actions { position: relative; }
+.advanced-actions summary { cursor: pointer; color: var(--ops-brand); list-style: none; }
+.advanced-actions[open] { display: flex; gap: 8px; align-items: center; }
+.advanced-actions[open] summary { color: var(--ops-muted); }
+.qr-modal { position: relative; width: min(400px, 100%); padding: 28px; border-radius: 15px; background: var(--ops-card); text-align: center; }
+.qr-modal .modal-close { position: absolute; top: 14px; right: 14px; }
+.qr-modal h2 { font: 700 23px/1 "STSong", serif; }
+.qr-modal img { width: 250px; height: 250px; max-width: 100%; }
+.qr-modal p { color: var(--ops-muted); font-size: 10px; line-height: 1.6; }
+.qr-modal .qr-url { padding: 8px 10px; border-radius: 7px; background: #f4f0ea; overflow-wrap: anywhere; color: var(--ops-ink); }
+.qr-modal .qr-warning { padding: 8px 10px; border-left: 3px solid #c88a35; background: #fff6df; color: #72501d; text-align: left; }
+.qr-actions { display: flex; justify-content: center; gap: 8px; margin-top: 12px; }
 
 @media (max-width: 1040px) {
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
@@ -1260,6 +1399,8 @@ onBeforeUnmount(() => {
   .sidebar nav { grid-template-columns: repeat(4, 1fr); margin-top: 12px; }
   .sidebar nav button { justify-content: center; padding: 7px; font-size: 9px; }
   .sidebar nav button span { display: none; }
+  .secondary-nav { display: none; }
+  .flavor-row { grid-template-columns: 1fr; }
   .side-user { display: none; }
   .topbar { top: 0; padding: 12px 16px; }
   .top-actions a { display: none; }

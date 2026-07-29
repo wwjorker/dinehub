@@ -25,6 +25,9 @@
             <if test="status != null">
                 status = #{status},
             </if>
+            <if test="qrToken != null and qrToken != ''">
+                qr_token = #{qrToken},
+            </if>
             <if test="updateTime != null">
                 update_time = #{updateTime},
             </if>

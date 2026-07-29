@@ -82,6 +82,18 @@ public class DiningTableController {
         return ResponseEntity.ok().contentType(MediaType.IMAGE_PNG).body(png);
     }
 
+    @GetMapping("/qrcode-info/{id}")
+    @ApiOperation("查询桌台二维码内容")
+    public Result<DiningTableVO> qrcodeInfo(@PathVariable Long id) {
+        return Result.success(toVO(diningTableService.getById(id)));
+    }
+
+    @PostMapping("/qrcode/{id}/rotate")
+    @ApiOperation("换新桌台二维码令牌")
+    public Result<DiningTableVO> rotateQrcode(@PathVariable Long id) {
+        return Result.success(toVO(diningTableService.rotateQrToken(id)));
+    }
+
     private DiningTableVO toVO(DiningTable diningTable) {
         return DiningTableVO.builder()
                 .id(diningTable.getId())

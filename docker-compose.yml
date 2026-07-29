@@ -24,6 +24,10 @@ services:
       DINEHUB_SECKILL_MODE: ${DINEHUB_SECKILL_MODE:-redis}
       DINEHUB_LOG_MAPPER: ${DINEHUB_LOG_MAPPER:-info}
       DINEHUB_H5_BASE_URL: ${DINEHUB_H5_BASE_URL:-http://localhost:8080/h5/index.html}
+      DINEHUB_LOCAL_UPLOAD: ${DINEHUB_LOCAL_UPLOAD:-true}
+      DINEHUB_UPLOAD_DIRECTORY: /app/uploads
+    volumes:
+      - upload-data-v2:/app/uploads
     depends_on:
       mysql:
         condition: service_healthy
@@ -92,3 +96,4 @@ volumes:
   mysql-data:
   redis-data:
   rabbitmq-data-v41:
+  upload-data-v2:

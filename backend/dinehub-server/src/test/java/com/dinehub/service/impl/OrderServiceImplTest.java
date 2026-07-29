@@ -153,6 +153,9 @@ class OrderServiceImplTest {
         AddressBook addressBook = new AddressBook();
         addressBook.setId(3L);
         addressBook.setUserId(USER_ID);
+        addressBook.setProvinceName("江苏省");
+        addressBook.setCityName("南京市");
+        addressBook.setDistrictName("玄武区");
         addressBook.setDetail("中山路100号");
         addressBook.setPhone("13800000000");
         addressBook.setConsignee("张三");
@@ -171,7 +174,7 @@ class OrderServiceImplTest {
         Orders saved = captor.getValue();
         assertEquals(Orders.DELIVERY, saved.getFulfillmentType());
         assertNull(saved.getTableId());
-        assertEquals("中山路100号", saved.getAddress());
+        assertEquals("江苏省 南京市 玄武区 中山路100号", saved.getAddress());
         assertEquals("张三", saved.getConsignee());
     }
 

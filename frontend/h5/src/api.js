@@ -63,8 +63,8 @@ async function request(path, options = {}) {
 }
 
 export const api = {
-  demoLogin: (nickname) =>
-    request('/user/user/demo-login', { method: 'POST', body: JSON.stringify({ nickname }) }),
+  demoLogin: (nickname, deviceId) =>
+    request('/user/user/demo-login', { method: 'POST', body: JSON.stringify({ nickname, deviceId }) }),
   shopStatus: () => request('/user/shop/status'),
   tableInfo: (tableToken) => request(`/user/table/info?${query({ tableToken })}`),
 

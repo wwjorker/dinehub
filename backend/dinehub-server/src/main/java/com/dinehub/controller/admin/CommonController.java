@@ -7,6 +7,7 @@ import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -16,6 +17,9 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.UUID;
 
 /**
@@ -32,6 +36,12 @@ public class CommonController {
 
     @Autowired
     private AliOssUtil aliOssUtil;
+
+    @Value("${dinehub.upload.local-enabled:false}")
+    private boolean localUploadEnabled;
+
+    @Value("${dinehub.upload.local-directory:./uploads}")
+    private String localUploadDirectory;
 
     /**
      * Accepts JPEG/PNG images only. The server decodes and re-encodes the
@@ -70,6 +80,16 @@ public class CommonController {
             }
 
             String objectName = UUID.randomUUID() + extension;
+            if (localUploadEnabled) {
+                Path uploadRoot = Paths.get(localUploadDirectory).toAbsolutePath().normalize();
+                Files.createDirectories(uploadRoot);
+                Path target = uploadRoot.resolve(objectName).normalize();
+                if (!target.getParent().equals(uploadRoot)) {
+                    return Result.error(MessageConstant.UPLOAD_FAILED);
+                }
+                Files.write(target, sanitized.toByteArray());
+                return Result.success("/uploads/" + objectName);
+            }
             return Result.success(aliOssUtil.upload(sanitized.toByteArray(), objectName));
         } catch (IOException | RuntimeException ex) {
             log.error("image upload failed", ex);

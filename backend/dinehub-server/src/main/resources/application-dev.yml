@@ -9,6 +9,9 @@ management:
 dinehub:
   demo-login:
     enabled: ${DINEHUB_DEMO_LOGIN:true}
+  upload:
+    local-enabled: ${DINEHUB_LOCAL_UPLOAD:true}
+    local-directory: ${DINEHUB_UPLOAD_DIRECTORY:./uploads}
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     host: ${DINEHUB_DB_HOST:localhost}

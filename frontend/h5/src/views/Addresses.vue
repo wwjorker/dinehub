@@ -1,8 +1,9 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showConfirmDialog, showToast } from 'vant'
 import { api } from '../api'
+import { regions } from '../region-data'
 
 const router = useRouter()
 const addresses = ref([])
@@ -14,11 +15,20 @@ const form = reactive({
   consignee: '',
   phone: '',
   sex: '0',
+  provinceCode: '',
+  provinceName: '',
+  cityCode: '',
   cityName: '',
+  districtCode: '',
   districtName: '',
   detail: '',
   label: '家'
 })
+
+const availableCities = computed(() =>
+  regions.find((province) => province.code === form.provinceCode)?.cities || [])
+const availableDistricts = computed(() =>
+  availableCities.value.find((city) => city.code === form.cityCode)?.districts || [])
 
 async function load() {
   loading.value = true
@@ -35,7 +45,11 @@ function resetForm() {
     consignee: '',
     phone: '',
     sex: '0',
+    provinceCode: '',
+    provinceName: '',
+    cityCode: '',
     cityName: '',
+    districtCode: '',
     districtName: '',
     detail: '',
     label: '家'
@@ -48,13 +62,25 @@ function openCreate() {
 }
 
 function openEdit(address) {
+  const matchedProvince = regions.find((province) =>
+    province.code === address.provinceCode
+    || province.name === address.provinceName
+    || province.cities.some((city) => city.name === address.cityName))
+  const matchedCity = matchedProvince?.cities.find((city) =>
+    city.code === address.cityCode || city.name === address.cityName)
+  const matchedDistrict = matchedCity?.districts.find((district) =>
+    district.code === address.districtCode || district.name === address.districtName)
   editingId.value = address.id
   Object.assign(form, {
     consignee: address.consignee || '',
     phone: address.phone || '',
     sex: address.sex || '0',
-    cityName: address.cityName || '',
-    districtName: address.districtName || '',
+    provinceCode: matchedProvince?.code || '',
+    provinceName: matchedProvince?.name || address.provinceName || '',
+    cityCode: matchedCity?.code || '',
+    cityName: matchedCity?.name || address.cityName || '',
+    districtCode: matchedDistrict?.code || '',
+    districtName: matchedDistrict?.name || address.districtName || '',
     detail: address.detail || '',
     label: address.label || '家'
   })
@@ -64,18 +90,37 @@ function openEdit(address) {
 function payload() {
   return {
     ...(editingId.value ? { id: editingId.value } : {}),
-    ...form,
-    provinceCode: '',
-    provinceName: '',
-    cityCode: '',
-    districtCode: ''
+    ...form
   }
+}
+
+function changeProvince() {
+  const province = regions.find((item) => item.code === form.provinceCode)
+  form.provinceName = province?.name || ''
+  form.cityCode = ''
+  form.cityName = ''
+  form.districtCode = ''
+  form.districtName = ''
+}
+
+function changeCity() {
+  const city = availableCities.value.find((item) => item.code === form.cityCode)
+  form.cityName = city?.name || ''
+  form.districtCode = ''
+  form.districtName = ''
+}
+
+function changeDistrict() {
+  form.districtName = availableDistricts.value
+    .find((item) => item.code === form.districtCode)?.name || ''
 }
 
 async function save() {
   if (!form.consignee.trim()) return showToast('请填写联系人')
   if (!/^1\d{10}$/.test(form.phone)) return showToast('请填写正确的手机号')
-  if (!form.cityName.trim() || !form.detail.trim()) return showToast('请补全城市和详细地址')
+  if (!form.provinceCode || !form.cityCode || !form.districtCode || !form.detail.trim()) {
+    return showToast('请选择省、市、区并填写详细地址')
+  }
 
   saving.value = true
   try {
@@ -159,8 +204,20 @@ onMounted(load)
         </div>
         <van-field v-model="form.consignee" label="联系人" maxlength="20" placeholder="怎么称呼" />
         <van-field v-model="form.phone" label="手机号" type="tel" maxlength="11" placeholder="用于联系配送" />
-        <van-field v-model="form.cityName" label="城市" maxlength="20" placeholder="例如：武汉市" />
-        <van-field v-model="form.districtName" label="区县" maxlength="20" placeholder="例如：洪山区" />
+        <div class="region-fields">
+          <label><span>省份</span><select v-model="form.provinceCode" @change="changeProvince">
+            <option value="">请选择</option>
+            <option v-for="province in regions" :key="province.code" :value="province.code">{{ province.name }}</option>
+          </select></label>
+          <label><span>城市</span><select v-model="form.cityCode" :disabled="!availableCities.length" @change="changeCity">
+            <option value="">请选择</option>
+            <option v-for="city in availableCities" :key="city.code" :value="city.code">{{ city.name }}</option>
+          </select></label>
+          <label><span>区县</span><select v-model="form.districtCode" :disabled="!availableDistricts.length" @change="changeDistrict">
+            <option value="">请选择</option>
+            <option v-for="district in availableDistricts" :key="district.code" :value="district.code">{{ district.name }}</option>
+          </select></label>
+        </div>
         <van-field
           v-model="form.detail"
           label="详细地址"
@@ -205,4 +262,8 @@ onMounted(load)
 .editor-head h2 { margin: 5px 0 0; font-family: "STSong", "Songti SC", serif; font-size: 23px; }
 .editor-head button { width: 32px; height: 32px; border: 1px solid var(--line); border-radius: 50%; background: transparent; font-size: 20px; }
 .address-editor > .van-button { margin-top: 18px; }
+.region-fields { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; padding: 10px 16px; border-bottom: 1px solid #ebedf0; }
+.region-fields label span { display: block; margin-bottom: 6px; color: #646566; font-size: 12px; }
+.region-fields select { width: 100%; min-width: 0; padding: 9px 7px; border: 1px solid var(--line); border-radius: 7px; background: white; color: var(--ink); font-size: 12px; }
+.region-fields select:disabled { background: #f4f2ef; color: #aaa; }
 </style>

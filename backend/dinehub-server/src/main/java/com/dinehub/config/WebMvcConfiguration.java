@@ -5,6 +5,7 @@ import com.dinehub.interceptor.JwtTokenUserInterceptor;
 import com.dinehub.json.JacksonObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.converter.HttpMessageConverter;
@@ -21,6 +22,7 @@ import springfox.documentation.spi.DocumentationType;
 import springfox.documentation.spring.web.plugins.Docket;
 
 import java.util.List;
+import java.nio.file.Paths;
 
 /**
  * 配置类，注册web层相关组件
@@ -33,6 +35,9 @@ public class WebMvcConfiguration extends WebMvcConfigurationSupport {
     private JwtTokenAdminInterceptor jwtTokenAdminInterceptor;
     @Autowired
     private JwtTokenUserInterceptor jwtTokenUserInterceptor;
+
+    @Value("${dinehub.upload.local-directory:./uploads}")
+    private String localUploadDirectory;
 
     /**
      * 注册自定义拦截器
@@ -110,6 +115,8 @@ public class WebMvcConfiguration extends WebMvcConfigurationSupport {
         log.info("开始设置静态资源映射...");
         //扫码点单H5(frontend/h5 构建产物),由后端直接托管,手机扫码即可访问
         registry.addResourceHandler("/h5/**").addResourceLocations("classpath:/static/h5/");
+        registry.addResourceHandler("/uploads/**")
+                .addResourceLocations(Paths.get(localUploadDirectory).toAbsolutePath().normalize().toUri().toString());
         registry.addResourceHandler("/doc.html").addResourceLocations("classpath:/META-INF/resources/");
         registry.addResourceHandler("/webjars/**").addResourceLocations("classpath:/META-INF/resources/webjars/");
     }

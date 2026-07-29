@@ -1,6 +1,7 @@
 import { reactive } from 'vue'
 
 const session = window.sessionStorage
+const local = window.localStorage
 
 export const store = reactive({
   token: session.getItem('dinehub.token') || '',
@@ -20,6 +21,17 @@ export function saveLogin(token, nickname) {
   store.nickname = nickname
   session.setItem('dinehub.token', token)
   session.setItem('dinehub.nickname', nickname)
+}
+
+export function demoDeviceId() {
+  let value = local.getItem('dinehub.demoDeviceId')
+  if (!value) {
+    value = typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}_${Math.random().toString(36).slice(2)}_${Math.random().toString(36).slice(2)}`
+    local.setItem('dinehub.demoDeviceId', value)
+  }
+  return value
 }
 
 export function logout() {

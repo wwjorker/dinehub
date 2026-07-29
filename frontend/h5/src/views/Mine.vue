@@ -39,23 +39,19 @@ onMounted(load)
         </div>
       </div>
       <div class="profile-summary">
-        <div><strong>{{ summary.orders }}</strong><span>全部订单</span></div>
-        <div><strong>{{ summary.pending }}</strong><span>进行中</span></div>
-        <div><strong>{{ summary.coupons }}</strong><span>可用券</span></div>
+        <button @click="router.push('/orders?filter=all')"><strong>{{ summary.orders }}</strong><span>全部订单</span></button>
+        <button @click="router.push('/orders?filter=making')"><strong>{{ summary.pending }}</strong><span>进行中</span></button>
+        <button @click="router.push('/coupons?filter=1')"><strong>{{ summary.coupons }}</strong><span>可用券</span></button>
       </div>
     </header>
 
     <section class="service-list">
       <button @click="router.push('/orders')"><van-icon name="orders-o" /><span><b>我的订单</b><small>付款、取消、催单与再来一单</small></span><van-icon name="arrow" /></button>
       <button @click="router.push('/coupons')"><van-icon name="coupon-o" /><span><b>我的优惠券</b><small>查看可用、占用和已使用状态</small></span><van-icon name="arrow" /></button>
-      <button @click="router.push('/addresses')"><van-icon name="location-o" /><span><b>收货地址</b><small>外卖订单的地址管理</small></span><van-icon name="arrow" /></button>
+      <button @click="router.push('/addresses')"><van-icon name="location-o" /><span><b>收货地址</b><small>外送订单的地址管理</small></span><van-icon name="arrow" /></button>
     </section>
 
-    <section class="section-card demo-note">
-      <p class="eyebrow">DEMO MODE</p>
-      <h2>这是一套可验证的本地演示流程</h2>
-      <p>模拟支付只在开发环境开放；真实支付与微信登录需要商户资质和生产配置。</p>
-    </section>
+    <p class="environment-note">当前为本地体验环境，支付不会产生真实扣款。</p>
 
     <button class="logout" @click="doLogout">退出当前账号</button>
   </div>
@@ -69,8 +65,8 @@ onMounted(load)
 .profile h1 { margin: 3px 0; font: 600 23px "STSong", serif; }
 .profile-top span { color: rgba(255,255,255,.62); font-size: 11px; }
 .profile-summary { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 23px; padding: 15px 0; border-top: 1px solid rgba(255,255,255,.14); }
-.profile-summary div { text-align: center; border-right: 1px solid rgba(255,255,255,.1); }
-.profile-summary div:last-child { border: 0; }
+.profile-summary button { border: 0; border-right: 1px solid rgba(255,255,255,.1); background: transparent; color: white; text-align: center; cursor: pointer; }
+.profile-summary button:last-child { border: 0; }
 .profile-summary strong, .profile-summary span { display: block; }
 .profile-summary strong { font-size: 19px; }
 .profile-summary span { margin-top: 2px; color: rgba(255,255,255,.55); font-size: 9px; }
@@ -82,7 +78,6 @@ onMounted(load)
 .service-list b { font-size: 14px; }
 .service-list small { margin-top: 3px; color: var(--muted); font-size: 10px; }
 .service-list > button > i:last-child { color: #b7afa7; }
-.demo-note h2 { margin: 6px 0; font: 600 18px "STSong", serif; }
-.demo-note > p:last-child { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.7; }
+.environment-note { margin: 18px 12px 0; color: #a39b93; font-size: 10px; text-align: center; }
 .logout { display: block; margin: 22px auto; border: 0; background: transparent; color: var(--muted); font-size: 12px; }
 </style>

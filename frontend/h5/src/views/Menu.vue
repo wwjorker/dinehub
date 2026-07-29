@@ -118,7 +118,7 @@ onMounted(async () => {
 
     <div v-if="!store.tableToken" class="scan-note">
       <span>尚未绑定桌台</span>
-      <small>堂食请扫描桌台二维码；也可在购物车选择外卖。</small>
+      <small>堂食请扫描桌台二维码；也可在购物车选择外送。</small>
     </div>
 
     <div class="menu-layout">
@@ -139,7 +139,8 @@ onMounted(async () => {
         <van-empty v-else-if="!products.length" description="这个分类暂时没有菜品" />
         <article v-for="item in products" v-else :key="`${item.productType}-${item.id}`" class="product">
           <button class="product-mark" @click="item.productType === 'setmeal' && showSetmeal(item)">
-            {{ (item.name || '食').slice(0, 1) }}
+            <span>{{ (item.name || '食').slice(0, 1) }}</span>
+            <img v-if="item.image" :src="item.image" :alt="item.name" @error="$event.target.remove()" />
           </button>
           <div class="product-info">
             <h2>{{ item.name }}</h2>
@@ -210,7 +211,8 @@ onMounted(async () => {
 .category-heading small { color: #aaa198; }
 .loading { padding: 60px 0; }
 .product { display: flex; gap: 12px; padding: 13px 0; border-bottom: 1px solid #eee9e3; }
-.product-mark { border: 0; cursor: pointer; }
+.product-mark { position: relative; overflow: hidden; border: 0; cursor: pointer; }
+.product-mark img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .product:nth-of-type(3n+1) .product-mark { background: #e3ece4; color: var(--forest); }
 .product:nth-of-type(3n+2) .product-mark { background: #ede4d6; color: #805d32; }
 .product-info { flex: 1; min-width: 0; }

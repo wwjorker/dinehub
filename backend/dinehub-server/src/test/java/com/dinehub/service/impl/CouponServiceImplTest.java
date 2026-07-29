@@ -27,6 +27,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.time.Duration;
+import java.time.ZoneId;
 import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -41,6 +42,8 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class CouponServiceImplTest {
+
+    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Shanghai");
 
     @Mock
     private CouponMapper couponMapper;
@@ -71,8 +74,8 @@ class CouponServiceImplTest {
                 .id(10L)
                 .type(Coupon.TYPE_SECKILL)
                 .status(Coupon.STATUS_PUBLISHED)
-                .seckillStartTime(LocalDateTime.now().minusMinutes(5))
-                .seckillEndTime(LocalDateTime.now().plusMinutes(5))
+                .seckillStartTime(LocalDateTime.now(BUSINESS_ZONE).minusMinutes(5))
+                .seckillEndTime(LocalDateTime.now(BUSINESS_ZONE).plusMinutes(5))
                 .totalStock(100)
                 .remainingStock(100)
                 .build();
@@ -95,8 +98,8 @@ class CouponServiceImplTest {
         dto.setDiscountAmount(1000);
         dto.setMinAmount(0);
         dto.setTotalStock(10);
-        dto.setSeckillStartTime(LocalDateTime.now().plusMinutes(1));
-        dto.setSeckillEndTime(LocalDateTime.now().plusMinutes(30));
+        dto.setSeckillStartTime(LocalDateTime.now(BUSINESS_ZONE).plusMinutes(1));
+        dto.setSeckillEndTime(LocalDateTime.now(BUSINESS_ZONE).plusMinutes(30));
 
         couponService.save(dto);
 
@@ -113,8 +116,8 @@ class CouponServiceImplTest {
         dto.setDiscountAmount(1000);
         dto.setMinAmount(500);
         dto.setTotalStock(10);
-        dto.setSeckillStartTime(LocalDateTime.now().plusMinutes(1));
-        dto.setSeckillEndTime(LocalDateTime.now().plusMinutes(30));
+        dto.setSeckillStartTime(LocalDateTime.now(BUSINESS_ZONE).plusMinutes(1));
+        dto.setSeckillEndTime(LocalDateTime.now(BUSINESS_ZONE).plusMinutes(30));
 
         assertThrows(SeckillBusinessException.class, () -> couponService.save(dto));
         verify(couponMapper, never()).insert(any());
@@ -141,12 +144,12 @@ class CouponServiceImplTest {
     @Test
     void seckillRejectsOutsideTimeWindow() {
         Coupon notStarted = publishedCoupon();
-        notStarted.setSeckillStartTime(LocalDateTime.now().plusHours(1));
+        notStarted.setSeckillStartTime(LocalDateTime.now(BUSINESS_ZONE).plusHours(1));
         when(couponMapper.getById(10L)).thenReturn(notStarted);
         assertThrows(SeckillBusinessException.class, () -> couponService.seckill(10L, 1L));
 
         Coupon ended = publishedCoupon();
-        ended.setSeckillEndTime(LocalDateTime.now().minusHours(1));
+        ended.setSeckillEndTime(LocalDateTime.now(BUSINESS_ZONE).minusHours(1));
         when(couponMapper.getById(10L)).thenReturn(ended);
         assertThrows(SeckillBusinessException.class, () -> couponService.seckill(10L, 1L));
     }

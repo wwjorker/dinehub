@@ -214,7 +214,8 @@ public class CouponServiceImpl implements CouponService {
     }
 
     private Duration ledgerTtl(Coupon coupon) {
-        Duration ttl = Duration.between(LocalDateTime.now(), coupon.getSeckillEndTime()).plus(KEY_TTL_MARGIN);
+        Duration ttl = Duration.between(LocalDateTime.now(BUSINESS_ZONE), coupon.getSeckillEndTime())
+                .plus(KEY_TTL_MARGIN);
         return ttl.isNegative() || ttl.isZero() ? Duration.ofHours(1) : ttl;
     }
 
@@ -227,7 +228,7 @@ public class CouponServiceImpl implements CouponService {
         if (!Coupon.STATUS_PUBLISHED.equals(coupon.getStatus())) {
             throw new SeckillBusinessException(MessageConstant.COUPON_NOT_PUBLISHED);
         }
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(BUSINESS_ZONE);
         if (coupon.getSeckillStartTime() != null && now.isBefore(coupon.getSeckillStartTime())) {
             throw new SeckillBusinessException(MessageConstant.SECKILL_NOT_STARTED);
         }
@@ -249,7 +250,7 @@ public class CouponServiceImpl implements CouponService {
     private SeckillTicketVO seckillByRedis(Coupon coupon, Long userId) {
         Long couponId = coupon.getId();
         String requestId = UUID.randomUUID().toString();
-        Duration ttl = Duration.between(LocalDateTime.now(), coupon.getSeckillEndTime())
+        Duration ttl = Duration.between(LocalDateTime.now(BUSINESS_ZONE), coupon.getSeckillEndTime())
                 .plus(KEY_TTL_MARGIN);
         if (ttl.isNegative() || ttl.isZero()) {
             ttl = KEY_TTL_MARGIN;
@@ -311,7 +312,7 @@ public class CouponServiceImpl implements CouponService {
                         .userId(userId)
                         .couponId(couponId)
                         .status(UserCoupon.UNUSED)
-                        .createTime(LocalDateTime.now())
+                        .createTime(LocalDateTime.now(BUSINESS_ZONE))
                         .build());
             } catch (DuplicateKeyException e) {
                 //唯一键兜底一人一单;异常触发回滚,恢复已扣库存

@@ -8,3 +8,9 @@ LOCAL-*.md
 *.log
 *.jtl
 scripts
+
+.env
+.review
+output
+.playwright-cli
+security_best_practices_report.md

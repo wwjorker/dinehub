@@ -3,3 +3,8 @@ mvnw text eol=lf
 *.cmd text eol=crlf
 *.jar binary
 *.xlsx binary
+
+# Keep Vite source and generated HTML stable across Windows and Linux.
+frontend/h5/*.html text eol=lf
+frontend/h5/src/** text eol=lf
+backend/dinehub-server/src/main/resources/static/h5/*.html text eol=lf

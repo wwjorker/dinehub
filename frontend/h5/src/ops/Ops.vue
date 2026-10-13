@@ -861,9 +861,9 @@ onBeforeUnmount(() => {
           <article class="ops-card overview-card">
             <div class="section-head"><h2>菜单供给</h2><button @click="switchPanel('catalog')">去管理</button></div>
             <div class="overview-numbers">
-              <div><strong>{{ dashboard.dishes.sold || 0 }}</strong><span>起售菜品</span></div>
+              <div><strong>{{ dashboard.dishes.sold || 0 }}</strong><span>启售菜品</span></div>
               <div><strong>{{ dashboard.dishes.discontinued || 0 }}</strong><span>停售菜品</span></div>
-              <div><strong>{{ dashboard.setmeals.sold || 0 }}</strong><span>起售套餐</span></div>
+              <div><strong>{{ dashboard.setmeals.sold || 0 }}</strong><span>启售套餐</span></div>
               <div><strong>{{ dashboard.setmeals.discontinued || 0 }}</strong><span>停售套餐</span></div>
             </div>
           </article>
@@ -926,7 +926,7 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-if="activePanel === 'catalog'" class="panel">
-        <p class="panel-description">分类、菜品和套餐共用同一套供给状态，起售后才会出现在用户端。</p>
+        <p class="panel-description">分类、菜品和套餐共用同一套供给状态，启售后才会出现在用户端。</p>
         <div class="catalog-tabs">
           <button :class="{ active: catalogTab === 'category' }" @click="catalogTab = 'category'">分类</button>
           <button :class="{ active: catalogTab === 'dish' }" @click="catalogTab = 'dish'">菜品</button>
@@ -960,10 +960,10 @@ onBeforeUnmount(() => {
                 <tr v-for="item in dishes" :key="item.id">
                   <td><div class="catalog-name"><img v-if="item.image" :src="item.image" alt="" @error="$event.target.style.display='none'" /><span>{{ item.name }}</span></div></td><td>{{ item.categoryName }}</td><td>¥{{ money(item.price) }}</td>
                   <td class="wrap-cell">{{ item.description || '—' }}</td>
-                  <td><span class="status-tag" :class="{ off: item.status !== 1 }">{{ item.status === 1 ? '起售' : '停售' }}</span></td>
+                  <td><span class="status-tag" :class="{ off: item.status !== 1 }">{{ item.status === 1 ? '启售' : '停售' }}</span></td>
                   <td class="row-actions">
                     <button @click="openCatalogEditor('dish', item)">编辑</button>
-                    <button @click="toggleCatalog('dish', item)">{{ item.status === 1 ? '停售' : '起售' }}</button>
+                    <button @click="toggleCatalog('dish', item)">{{ item.status === 1 ? '停售' : '启售' }}</button>
                     <button @click="deleteCatalog('dish', item)">删除</button>
                   </td>
                 </tr>
@@ -975,10 +975,10 @@ onBeforeUnmount(() => {
                 <tr v-for="item in setmeals" :key="item.id">
                   <td><div class="catalog-name"><img v-if="item.image" :src="item.image" alt="" @error="$event.target.style.display='none'" /><span>{{ item.name }}</span></div></td><td>{{ item.categoryName }}</td><td>¥{{ money(item.price) }}</td>
                   <td class="wrap-cell">{{ item.description || '—' }}</td>
-                  <td><span class="status-tag" :class="{ off: item.status !== 1 }">{{ item.status === 1 ? '起售' : '停售' }}</span></td>
+                  <td><span class="status-tag" :class="{ off: item.status !== 1 }">{{ item.status === 1 ? '启售' : '停售' }}</span></td>
                   <td class="row-actions">
                     <button @click="openCatalogEditor('setmeal', item)">编辑</button>
-                    <button @click="toggleCatalog('setmeal', item)">{{ item.status === 1 ? '停售' : '起售' }}</button>
+                    <button @click="toggleCatalog('setmeal', item)">{{ item.status === 1 ? '停售' : '启售' }}</button>
                     <button @click="deleteCatalog('setmeal', item)">删除</button>
                   </td>
                 </tr>

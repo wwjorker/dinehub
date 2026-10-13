@@ -121,7 +121,7 @@ dinehub:
     pay-timeout-millis: ${DINEHUB_ORDER_PAY_TIMEOUT_MILLIS:900000}
     timeout-scan-cron: ${DINEHUB_ORDER_TIMEOUT_SCAN_CRON:0 0/10 * * * ?}
   demo-login:
-    # nickname-based login for demo environments only; the dev profile turns
+    # device-isolated demo login; nicknames are display-only. The dev profile turns
     # it on explicitly, every other profile keeps it off
     enabled: ${DINEHUB_DEMO_LOGIN:false}
   seckill:

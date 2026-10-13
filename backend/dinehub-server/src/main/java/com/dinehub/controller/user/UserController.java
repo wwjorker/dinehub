@@ -34,7 +34,7 @@ public class UserController {
     private JwtProperties jwtProperties;
 
     /**
-     * 演示登录开关:H5演示环境没有微信,提供昵称直登;生产环境必须关闭
+     * 演示登录开关：按浏览器设备标识隔离演示用户，昵称仅作展示；生产环境必须关闭
      */
     @Value("${dinehub.demo-login.enabled:false}")
     private boolean demoLoginEnabled;
@@ -47,7 +47,7 @@ public class UserController {
     @PostMapping("/login")
     @ApiOperation("微信登录")
     public Result<UserLoginVO> login(@RequestBody UserLoginDTO userLoginDTO){
-        log.info("微信用户登录：{}",userLoginDTO.getCode());
+        log.info("收到微信用户登录请求");
 
         //微信登录
         User user = userService.wxLogin(userLoginDTO);
@@ -66,7 +66,7 @@ public class UserController {
     }
 
     /**
-     * 演示登录:凭昵称直登,给无微信环境的H5演示用
+     * 演示登录：按设备标识隔离账号，供无微信环境的 H5 演示使用
      * @param userLoginDTO
      * @return
      */

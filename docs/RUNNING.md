@@ -63,16 +63,20 @@ npm run dev
 ### 构建与测试
 
 - 前端在 `frontend/h5` 执行 `npm run test`、`npm run build`。构建输出直接写到 `backend/dinehub-server/src/main/resources/static/h5`，源码修改须与产物一起审查。
-- 后端在 `backend` 执行 `./mvnw -B clean verify`；PowerShell 使用 `./mvnw.cmd`，并设置 `JAVA_HOME`。Maven wrapper 命令从 `backend` 目录执行。
+- 后端在 `backend` 执行 `./mvnw -B clean verify`；PowerShell 使用 `./mvnw.cmd -B clean verify`，并设置 `JAVA_HOME`。仓库自带 Maven Wrapper，无需另装 Maven。
 - 完整后端测试需要 Docker，Testcontainers 会创建临时数据库和消息组件；跳过容器测试不等于完整通过。
 - Flyway 迁移要求 MySQL 8.0+；演示上传使用 `upload-data-v2` 卷，备份与迁移时应同时保留数据库和上传目录。
+
+前端构建后，在 `frontend/h5` 目录检查产物差异：
+
+```bash
+git diff -- ../../backend/dinehub-server/src/main/resources/static/h5
+```
+
+源码和对应静态产物需一起提交。CI 会在干净检出中重新构建，并通过 `git diff --exit-code` 检查产物一致性；后端测试同时检查失败与跳过情况。
 
 ## 重置与停止
 
 停止服务可使用 `docker compose stop`，它会保留数据卷。再次启动用 `docker compose up -d`。
 
 `scripts/demo-reset.sql` 会删除交易数据，仅适合已备份的专用演示库。不要在需要保留交易记录的数据库中执行，也不要用 `down -v` 代替停止。
-
-详细协作约定见 [CONTRIBUTING](../CONTRIBUTING.md)，历史压测口径见 [历史记录](BENCHMARK-HISTORY.md)。
-
-已执行的验证及其范围见[验证记录](VERIFICATION-20261014.md)。

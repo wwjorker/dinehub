@@ -3,15 +3,21 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showConfirmDialog, showToast } from 'vant'
 import { api } from '../api'
-import { checkoutRequestId, completeCheckout, store } from '../store'
+import { checkoutRequestId, completeCheckout, reconcileCheckoutAddress, store } from '../store'
 
 const router = useRouter()
 const items = ref([])
 const coupons = ref([])
 const addresses = ref([])
 const remark = ref('')
-const fulfillment = ref(store.tableToken ? 'dineIn' : 'delivery')
-const selectedAddressId = ref(null)
+const fulfillment = computed({
+  get: () => store.checkoutFulfillment || (store.tableToken ? 'dineIn' : 'delivery'),
+  set: (value) => { store.checkoutFulfillment = value }
+})
+const selectedAddressId = computed({
+  get: () => store.checkoutAddressId,
+  set: (value) => { store.checkoutAddressId = value }
+})
 const selectedCouponId = ref(null)
 const couponSheet = ref(false)
 const addressSheet = ref(false)
@@ -48,9 +54,9 @@ async function load() {
   coupons.value = couponList
   addresses.value = addressList
   store.cartCount = itemCount.value
-  selectedAddressId.value = addressList.find((item) => item.isDefault === 1)?.id
-    || addressList[0]?.id
-    || null
+  if (reconcileCheckoutAddress(addressList) && fulfillment.value === 'delivery') {
+    showToast('原收货地址已失效，请重新选择')
+  }
   if (selectedCouponId.value && !availableCoupons.value.some((coupon) => coupon.id === selectedCouponId.value)) {
     selectedCouponId.value = null
   }
@@ -79,6 +85,7 @@ function chooseCoupon(coupon) {
 
 function chooseAddress(address) {
   selectedAddressId.value = address.id
+  store.checkoutAddressInvalid = false
   addressSheet.value = false
 }
 
@@ -153,7 +160,7 @@ onMounted(load)
           <p>{{ addressText(selectedAddress) }}</p>
         </template>
         <template v-else>
-          <strong>添加收货地址</strong><p>外送订单需要一个有效地址</p>
+          <strong>选择收货地址</strong><p>{{ store.checkoutAddressInvalid ? '原收货地址已失效，请重新选择' : '外送订单需要一个有效地址' }}</p>
         </template>
         <van-icon name="arrow" />
       </section>

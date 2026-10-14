@@ -9,7 +9,11 @@ export const store = reactive({
   tableToken: session.getItem('dinehub.tableToken') || '',
   tableName: session.getItem('dinehub.tableName') || '',
   shopOpen: true,
-  cartCount: 0
+  cartCount: 0,
+  // 仅保存当前结算的选择，跨页面返回时复用；完成、清空或退出后重置。
+  checkoutFulfillment: null,
+  checkoutAddressId: null,
+  checkoutAddressInvalid: false
 })
 
 export function getToken() {
@@ -39,7 +43,7 @@ export function logout() {
   store.nickname = ''
   session.removeItem('dinehub.token')
   session.removeItem('dinehub.nickname')
-  session.removeItem('dinehub.checkoutRequestId')
+  completeCheckout()
 }
 
 export function saveTable(tableToken, tableName) {
@@ -67,4 +71,22 @@ export function checkoutRequestId() {
 
 export function completeCheckout() {
   session.removeItem('dinehub.checkoutRequestId')
+  store.checkoutFulfillment = null
+  store.checkoutAddressId = null
+  store.checkoutAddressInvalid = false
+}
+
+export function reconcileCheckoutAddress(addresses) {
+  if (store.checkoutAddressId !== null) {
+    if (addresses.some((address) => address.id === store.checkoutAddressId)) return false
+    store.checkoutAddressId = null
+    store.checkoutAddressInvalid = true
+    return true
+  }
+  // 原地址失效时要求用户重新选择，不能自动换成另一个地址。
+  if (!store.checkoutAddressInvalid) {
+    store.checkoutAddressId = addresses.find((address) => address.isDefault === 1)?.id
+      || addresses[0]?.id || null
+  }
+  return false
 }

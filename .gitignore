@@ -30,3 +30,9 @@ scripts/jmeter/*.csv
 scripts/jmeter/*_seed.sql
 Thumbs.db
 .DS_Store
+
+# Local review evidence and private audit notes
+.review/
+output/playwright/
+.playwright-cli/
+security_best_practices_report.md

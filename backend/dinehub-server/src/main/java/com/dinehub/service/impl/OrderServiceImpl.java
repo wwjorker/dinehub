@@ -842,8 +842,9 @@ public class OrderServiceImpl implements OrderService {
         // 根据id查询订单
         Orders ordersDB = orderMapper.getById(id);
 
-        // 校验订单是否存在，并且状态为3
-        if (ordersDB == null || !ordersDB.getStatus().equals(Orders.CONFIRMED)) {
+        // 仅外送订单可以从已接单进入派送中；堂食无需配送。
+        if (ordersDB == null || !Orders.DELIVERY.equals(ordersDB.getFulfillmentType())
+                || !Orders.CONFIRMED.equals(ordersDB.getStatus())) {
             throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
         }
 
@@ -867,18 +868,31 @@ public class OrderServiceImpl implements OrderService {
         // 根据id查询订单
         Orders ordersDB = orderMapper.getById(id);
 
-        // 校验订单是否存在，并且状态为4
-        if (ordersDB == null || !ordersDB.getStatus().equals(Orders.DELIVERY_IN_PROGRESS)) {
+        if (ordersDB == null) {
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
+        // 堂食从已接单(3)完成；兼容旧接口产生的派送中(4)堂食单。
+        // 外送仍只允许从派送中完成，未知履约方式不放行。
+        final Integer fromStatus;
+        if (Orders.DINE_IN.equals(ordersDB.getFulfillmentType())) {
+            fromStatus = Orders.DELIVERY_IN_PROGRESS.equals(ordersDB.getStatus())
+                    ? Orders.DELIVERY_IN_PROGRESS : Orders.CONFIRMED;
+        } else if (Orders.DELIVERY.equals(ordersDB.getFulfillmentType())) {
+            fromStatus = Orders.DELIVERY_IN_PROGRESS;
+        } else {
+            throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
+        }
+        if (!fromStatus.equals(ordersDB.getStatus())) {
             throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
         }
 
         Orders orders = new Orders();
         orders.setId(ordersDB.getId());
-        // 乐观状态迁移:仅派送中(4)可转完成
         orders.setStatus(Orders.COMPLETED);
         orders.setDeliveryTime(LocalDateTime.now());
 
-        int rows = orderMapper.transitionStatus(orders, Orders.DELIVERY_IN_PROGRESS);
+        // 保留条件更新：并发取消或其他状态迁移已生效时，完成操作必须失败。
+        int rows = orderMapper.transitionStatus(orders, fromStatus);
         if (rows == 0) {
             throw new OrderBusinessException(MessageConstant.ORDER_STATUS_ERROR);
         }

@@ -119,6 +119,8 @@ class DineHubInfrastructureIntegrationTest {
     @Autowired
     private AddressBookMapper addressBookMapper;
     @Autowired
+    private com.dinehub.service.OrderService orderService;
+    @Autowired
     private AmqpAdmin rabbitAdmin;
     @Autowired
     @Qualifier("seckillBinding")
@@ -132,8 +134,8 @@ class DineHubInfrastructureIntegrationTest {
                 "select version from flyway_schema_history where version is not null order by installed_rank desc limit 1",
                 String.class);
 
-        assertEquals(14, migrations);
-        assertEquals("14", latest);
+        assertEquals(16, migrations);
+        assertEquals("16", latest);
         assertEquals(1, jdbc.queryForObject(
                 "select count(*) from information_schema.tables where table_schema = database() and table_name = 'seckill_request'",
                 Integer.class));
@@ -399,6 +401,30 @@ class DineHubInfrastructureIntegrationTest {
             assertEquals(Orders.PAID, payStatus);
         } else {
             assertEquals(Orders.REFUND_PENDING, payStatus);
+        }
+    }
+
+    @Test
+    void fulfillmentCompletionPersistsAndRejectsRepeatedOrPrematureCompletion() {
+        for (int[] scenario : new int[][]{{2, 3}, {1, 3}, {2, 4}}) {
+            int fulfillment = scenario[0];
+            String number = "FC" + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
+            jdbc.update("insert into orders(number,status,fulfillment_type,user_id,order_time,pay_status,original_amount,amount) " +
+                    "values(?,?,?,93001,now(),1,48.00,48.00)", number, scenario[1], fulfillment);
+            Long id = jdbc.queryForObject("select id from orders where number=?", Long.class, number);
+            if (fulfillment == Orders.DELIVERY) {
+                org.junit.jupiter.api.Assertions.assertThrows(com.dinehub.exception.OrderBusinessException.class,
+                        () -> orderService.complete(id));
+                orderService.delivery(id);
+            } else {
+                org.junit.jupiter.api.Assertions.assertThrows(com.dinehub.exception.OrderBusinessException.class,
+                        () -> orderService.delivery(id));
+            }
+            orderService.complete(id);
+            assertEquals(Orders.COMPLETED, jdbc.queryForObject("select status from orders where id=?", Integer.class, id));
+            assertEquals(Orders.PAID, jdbc.queryForObject("select pay_status from orders where id=?", Integer.class, id));
+            org.junit.jupiter.api.Assertions.assertThrows(com.dinehub.exception.OrderBusinessException.class,
+                    () -> orderService.complete(id));
         }
     }
 

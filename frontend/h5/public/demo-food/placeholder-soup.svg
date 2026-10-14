@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400" role="img" aria-label="暖心汤羹类别占位图">
+<rect width="400" height="400" rx="28" fill="#f3eee3"/>
+<circle cx="200" cy="168" r="126" fill="#e5eadf"/>
+<g fill="none" stroke="#42664d" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M110 170h180c-5 70-45 83-90 83s-85-13-90-83z M155 147q-20-22 0-47 M208 147q-20-22 0-47 M258 158l37-63"/></g>
+<text x="200" y="316" text-anchor="middle" font-family="sans-serif" font-size="29" fill="#274c3a">暖心汤羹</text>
+<text x="200" y="355" text-anchor="middle" font-family="sans-serif" font-size="19" fill="#77776a">类别示意 · 图片待补充</text>
+</svg>

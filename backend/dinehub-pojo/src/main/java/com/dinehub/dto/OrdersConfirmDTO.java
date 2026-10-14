@@ -8,7 +8,7 @@ import java.io.Serializable;
 public class OrdersConfirmDTO implements Serializable {
 
     private Long id;
-    //订单状态 1待付款 2待接单 3 已接单 4 派送中 5 已完成 6 已取消 7 退款
+    //订单状态 1待付款 2待接单 3已接单 4派送中 5已完成 6已取消；退款由支付状态表示
     private Integer status;
 
 }

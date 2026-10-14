@@ -1,13 +1,13 @@
 # JMeter 压测脚本
 
-结果与口径见仓库根 README「性能压测」章节。复现步骤:
+用于菜品查询与领券接口的本地压测，结果通过 JTL 文件统计。数据准备与清理应在已备份的专用测试环境中进行。
 
 ## 准备
 
-1. `docker compose up -d --build` 启动应用、MySQL、Redis 与 RabbitMQ(见根 README)。
+1. 在仓库根目录执行 `docker compose up -d --build`，启动应用、MySQL、Redis 与 RabbitMQ。
    - 正式压测前将 `DINEHUB_RATE_LIMIT_ENABLED=false`,避免把入口保护能力混入业务链路吞吐。
    - DB 对照组设置 `DINEHUB_SECKILL_MODE=db`;可靠异步组设置为 `redis`,切换后重建 app 容器。
-2. 造数:
+2. 在 `scripts/jmeter` 目录准备测试数据（需要 Python 3）:
    - 菜品:向 `dish` 表补种子数据至 500 条(分类 16 下约 63 条)。
    - 用户与令牌可用入库脚本一次生成:
 
@@ -19,6 +19,8 @@ python prepare_seckill.py --secret <dev profile 的用户 JWT 密钥>
 3. 管理端创建并发布压测券;每轮必须等待 RabbitMQ 队列排空,再清理该券的 `user_coupon`/`seckill_request` 并重建 Redis 账本。直接在有在途消息时删表会污染下一轮。
 
 ## 运行
+
+安装 JMeter 并将其加入 PATH。在 `scripts/jmeter` 目录执行以下命令；示例使用 Bash 的反斜杠续行，PowerShell 中请合并为单行。
 
 ```bash
 # 菜品查询(缓存开关用环境变量 DINEHUB_CACHE_DISH_ENABLED 控制,重启生效)
@@ -34,6 +36,10 @@ jmeter -n -t seckill.jmx -l out.jtl -Jtokencsv=<user_tokens.csv 绝对路径> \
 python analyze.py out.jtl
 ```
 
-每组配置跑 3 轮取中位数;应用与 JMeter 同机运行,发压端与服务端抢占 CPU,数字口径偏保守。
+## 结果统计
 
-当前版本最近一次三轮结果(2026-07-13):DB 行锁为 81.2/80.8/77.6 QPS,中位数 80.8 QPS、P50 1510ms、P99 8751ms;可恢复 Redis 投递为 1031/1248/1552 QPS,中位数 1248 QPS、P50 103ms、P99 385ms。两组错误率均为 0%。Redis 数字只代表可靠准入,异步到账速度单独统计。
+`analyze.py` 读取 CSV 格式 JTL 中的 `timeStamp`、`elapsed` 和 `success` 字段，输出请求数、统计时长、QPS、P50/P95/P99 响应时间和错误率。QPS 为请求数除以首个请求开始至最后一个请求结束的秒数；错误率按 `success` 不为 `true` 的请求占比计算。
+
+每组配置运行 3 轮，分别保存 JTL，再按同一指标取三轮中位数。记录硬件、运行模式、缓存与限流开关、并发数和持续时间，便于比较；应用与 JMeter 同机运行会相互争用资源。
+
+Redis 异步领券的接口响应只代表准入结果，优惠券最终到账时间和失败情况需单独统计，不能用接口 QPS 代替到账吞吐。

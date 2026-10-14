@@ -870,7 +870,7 @@ onBeforeUnmount(() => {
         </section>
 
         <section class="ops-card recent-card">
-          <div class="section-head"><h2>最近订单</h2><span>WebSocket 到单后自动更新</span></div>
+          <div class="section-head"><h2>最近订单</h2><span>新订单自动更新</span></div>
           <div class="ops-table-wrap">
             <table class="ops-table">
               <thead><tr><th>订单号</th><th>履约</th><th>金额</th><th>状态</th><th>时间</th></tr></thead>
@@ -889,7 +889,7 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-if="activePanel === 'orders'" class="panel">
-        <p class="panel-description">接单、拒单、制作、配送和完成形成可操作的订单状态机。</p>
+        <p class="panel-description">查看和处理堂食、外送订单，跟进制作与配送进度。</p>
         <div class="toolbar">
           <input v-model="orderSearch" class="ops-input" placeholder="按订单号查询" @keyup.enter="searchOrders" />
           <select v-model="orderFilter" class="ops-select" @change="searchOrders">
@@ -989,7 +989,7 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-if="activePanel === 'tables'" class="panel">
-        <p class="panel-description">每个桌台拥有不可预测的 token，二维码只负责传递桌台上下文。</p>
+        <p class="panel-description">管理桌台与点餐二维码，顾客扫码后关联对应桌台。</p>
         <div class="toolbar">
           <input v-model="tableName" class="ops-input" maxlength="30" placeholder="桌台名称，例如 A01" @keyup.enter="addTable" />
           <button class="ops-button primary" @click="addTable">新增桌台</button>
@@ -1073,7 +1073,7 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-if="activePanel === 'reports'" class="panel">
-        <p class="panel-description">所有图表都由真实报表接口生成，不使用前端写死的演示数字。</p>
+        <p class="panel-description">按时间查看营业额、订单、用户增长和菜品销量。</p>
         <div class="toolbar">
           <label class="inline-field">开始<input v-model="reportRange.begin" class="ops-input" type="date" /></label>
           <label class="inline-field">结束<input v-model="reportRange.end" class="ops-input" type="date" /></label>
@@ -1107,58 +1107,6 @@ onBeforeUnmount(() => {
         </section>
       </div>
 
-      <div v-if="activePanel === 'engineering'" class="panel engineering-panel">
-        <p class="panel-description">把面试时最值得讲的系统设计集中展示，页面内容均对应当前代码实现。</p>
-        <section class="architecture-flow">
-          <article><span>01</span><strong>Vue 3 双端</strong><p>顾客 H5 与运营台，共享同一套 Spring MVC API。</p></article>
-          <i>→</i>
-          <article><span>02</span><strong>Spring Boot</strong><p>JWT、订单状态机、服务端计价与幂等提交。</p></article>
-          <i>→</i>
-          <article><span>03</span><strong>数据与消息</strong><p>MySQL 持久化，Redis 抢券，RabbitMQ 超时关单。</p></article>
-        </section>
-        <section class="engineering-grid">
-          <article class="ops-card engineering-card">
-            <div class="panel-kicker">ORDER RELIABILITY</div>
-            <h2>订单可靠性</h2>
-            <ul>
-              <li><strong>客户端 requestId</strong><span>同一请求重复提交只返回原订单</span></li>
-              <li><strong>服务端结算</strong><span>不信任前端金额和优惠结果</span></li>
-              <li><strong>优惠券预占</strong><span>支付核销，取消和超时自动释放</span></li>
-              <li><strong>状态机</strong><span>顾客与运营端按角色推进订单</span></li>
-            </ul>
-          </article>
-          <article class="ops-card engineering-card">
-            <div class="panel-kicker">HIGH CONCURRENCY</div>
-            <h2>秒杀链路</h2>
-            <ul>
-              <li><strong>Redis Lua</strong><span>原子校验库存和重复抢券</span></li>
-              <li><strong>RabbitMQ</strong><span>异步落库并查询最终结果</span></li>
-              <li><strong>补偿与对账</strong><span>库存漂移可见、缓存可幂等重建</span></li>
-              <li><strong>用户态回显</strong><span>已抢、占用、核销不再只显示“立即抢”</span></li>
-            </ul>
-          </article>
-          <article class="ops-card engineering-card">
-            <div class="panel-kicker">SECURE DEFAULTS</div>
-            <h2>安全边界</h2>
-            <ul>
-              <li><strong>资源归属校验</strong><span>订单和地址避免 IDOR 越权</span></li>
-              <li><strong>图片重编码</strong><span>限制大小、像素和真实文件类型</span></li>
-              <li><strong>浏览器安全头</strong><span>CSP、nosniff、frame deny</span></li>
-              <li><strong>基础设施端口</strong><span>数据库和中间件默认只绑定本机</span></li>
-            </ul>
-          </article>
-          <article class="ops-card engineering-card deferred">
-            <div class="panel-kicker">ROADMAP</div>
-            <h2>明确未伪装完成</h2>
-            <ul>
-              <li><strong>真实微信登录 / 支付</strong><span>当前开发模式用演示入口替代</span></li>
-              <li><strong>RBAC 权限模型</strong><span>现阶段只有管理员统一权限</span></li>
-              <li><strong>Spring Boot 3</strong><span>作为独立升级迭代，不混入功能改造</span></li>
-              <li><strong>公网部署</strong><span>本地 Docker 演示，生产需域名与 HTTPS</span></li>
-            </ul>
-          </article>
-        </section>
-      </div>
     </section>
   </div>
 
@@ -1457,7 +1405,7 @@ onBeforeUnmount(() => {
 .metric-card span { color: var(--ops-muted); font-size: 10px; }
 .metric-card strong { margin: 9px 0 4px; font: 700 25px/1 Georgia, serif; }
 .metric-card small { color: #99918a; font-size: 9px; }
-.dashboard-grid, .report-grid, .engineering-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; margin-top: 13px; }
+.dashboard-grid, .report-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; margin-top: 13px; }
 .overview-card, .recent-card, .chart-card { padding: 18px; }
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .section-head h2 { margin: 0; font-size: 14px; }
@@ -1494,17 +1442,6 @@ onBeforeUnmount(() => {
 .bar-list.green i b { background: var(--ops-forest); }
 .report-metrics { grid-template-columns: repeat(3, minmax(0,1fr)); }
 
-.architecture-flow { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; align-items: center; gap: 13px; margin-top: 18px; }
-.architecture-flow article { min-height: 150px; padding: 20px; border: 1px solid rgba(73,57,44,.08); border-radius: 13px; background: var(--ops-card); }
-.architecture-flow article > span { color: var(--ops-brand); font: 700 11px/1 Georgia, serif; }
-.architecture-flow article strong { display: block; margin: 22px 0 8px; font: 700 18px/1 "STSong", serif; }
-.architecture-flow article p { margin: 0; color: var(--ops-muted); font-size: 10px; line-height: 1.7; }
-.architecture-flow > i { color: #a49b93; font-style: normal; }
-.engineering-card { padding: 21px; }.engineering-card h2 { margin: 7px 0 16px; font: 700 19px/1 "STSong", serif; }
-.engineering-card ul { display: grid; gap: 13px; margin: 0; padding: 0; list-style: none; }
-.engineering-card li { display: grid; grid-template-columns: 105px 1fr; gap: 12px; font-size: 10px; }
-.engineering-card li span { color: var(--ops-muted); line-height: 1.6; }
-.engineering-card.deferred { border-style: dashed; }
 
 .order-detail-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .order-detail-summary div, .reconcile-grid div { padding: 12px; border-radius: 9px; background: #f2eee8; }
@@ -1566,9 +1503,7 @@ onBeforeUnmount(() => {
   .top-actions a { display: none; }
   .loading-line { left: 0; top: 68px; }
   .panel { padding: 18px 14px 40px; }
-  .metric-grid, .report-metrics, .engineering-grid { grid-template-columns: 1fr; }
-  .architecture-flow { grid-template-columns: 1fr; }
-  .architecture-flow > i { transform: rotate(90deg); text-align: center; }
+  .metric-grid, .report-metrics { grid-template-columns: 1fr; }
   .overview-numbers { grid-template-columns: repeat(2, 1fr); }
   .order-detail-summary, .reconcile-grid { grid-template-columns: 1fr; }
 }

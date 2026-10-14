@@ -1,5 +1,7 @@
 # 展示整理验证记录 · 2026-10-13
 
+> 本文保留 2026-10-13 当时的验证结果与阻塞状态。2026-10-14 已恢复 Docker 并完成定向集成与页面复验，当前结果见[后续验证记录](VERIFICATION-20261014.md)。下方同名截图链接已更新为 2026-10-14 实拍，不能据此还原前一轮界面状态。
+
 ## 版本与范围
 
 - 基线提交：`2c8040356af1dd9d9b0677513870d452b66e960b`。
@@ -70,7 +72,7 @@ Docker 恢复后仍须先在隔离环境执行：
 
 - [用户菜单](screenshots/customer-menu.png)：匹配照片与明确的类别占位图。
 - [限时领券](screenshots/customer-coupons.png)：真实领取后的“已领取”状态。
-- [商家订单详情](screenshots/merchant-orders.png)：已支付、制作中的真实测试订单，不能解释为已完成。
+- 首轮商家截图记录了已支付、制作中的测试订单；当前[商家列表](screenshots/merchant-orders.png)与[详情](screenshots/merchant-detail.png)已由 2026-10-14 完成复验后的实拍替换。
 - [饮品图片修正](screenshots/customer-drinks.png)：饮品使用饮品类别示意，避免菜品图片错配。
 
 占位图为 SVG 类别图标，明确标注“类别示意 · 图片待补充”；它们是菜单素材，不是运行截图。

@@ -76,19 +76,19 @@ class DemoImageMigrationTest {
         Flyway.configure().dataSource(url, "root", MYSQL.getPassword()).target("15").load().migrate();
         try (Connection c = DriverManager.getConnection(url, "root", MYSQL.getPassword());
              Statement s = c.createStatement()) {
-            s.execute("INSERT INTO orders (number,status,fulfillment_type,user_id,order_time,pay_method,pay_status,amount) " +
-                    "VALUES ('comment-check',3,2,42,'2026-10-13 12:00:00',1,1,48.00)");
+            s.execute("INSERT INTO orders (number,status,fulfillment_type,user_id,order_time,pay_method,pay_status,original_amount,amount) " +
+                    "VALUES ('comment-check',3,2,42,'2026-10-13 12:00:00',1,1,48.00,48.00)");
             String definitionsSql = "SELECT GROUP_CONCAT(CONCAT_WS(':',column_name,column_type,is_nullable," +
                     "COALESCE(column_default,'NULL'),extra) ORDER BY ordinal_position SEPARATOR '|') " +
                     "FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='orders'";
             s.execute("SET SESSION group_concat_max_len=65535");
             String beforeDefinitions = scalar(s, definitionsSql);
             String beforeOrder = scalar(s, "SELECT CONCAT_WS(':',id,number,status,fulfillment_type,user_id," +
-                    "order_time,pay_method,pay_status,amount) FROM orders WHERE number='comment-check'");
+                    "order_time,pay_method,pay_status,original_amount,amount) FROM orders WHERE number='comment-check'");
             Flyway.configure().dataSource(url, "root", MYSQL.getPassword()).load().migrate();
             assertEquals(beforeDefinitions, scalar(s, definitionsSql));
             assertEquals(beforeOrder, scalar(s, "SELECT CONCAT_WS(':',id,number,status,fulfillment_type,user_id," +
-                    "order_time,pay_method,pay_status,amount) FROM orders WHERE number='comment-check'"));
+                    "order_time,pay_method,pay_status,original_amount,amount) FROM orders WHERE number='comment-check'"));
             assertEquals("16", scalar(s, "SELECT MAX(CAST(version AS UNSIGNED)) FROM flyway_schema_history"));
             assertEquals("支付状态 0未支付 1已支付 2已退款 3退款中", scalar(s,
                     "SELECT column_comment FROM information_schema.columns WHERE table_schema=DATABASE() " +

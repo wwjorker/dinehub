@@ -409,8 +409,8 @@ class DineHubInfrastructureIntegrationTest {
         for (int[] scenario : new int[][]{{2, 3}, {1, 3}, {2, 4}}) {
             int fulfillment = scenario[0];
             String number = "FC" + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
-            jdbc.update("insert into orders(number,status,fulfillment_type,user_id,order_time,pay_status,amount) " +
-                    "values(?,?,?,93001,now(),1,48.00)", number, scenario[1], fulfillment);
+            jdbc.update("insert into orders(number,status,fulfillment_type,user_id,order_time,pay_status,original_amount,amount) " +
+                    "values(?,?,?,93001,now(),1,48.00,48.00)", number, scenario[1], fulfillment);
             Long id = jdbc.queryForObject("select id from orders where number=?", Long.class, number);
             if (fulfillment == Orders.DELIVERY) {
                 org.junit.jupiter.api.Assertions.assertThrows(com.dinehub.exception.OrderBusinessException.class,
